@@ -4,6 +4,8 @@ from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.transaction import TransactionSourceType
+from app.rule_engine.context import RuleContext
+from app.rule_engine.section_393 import TDSDecisionStatus
 from app.sources.base import normalize_pan
 
 
@@ -18,6 +20,7 @@ class ManualTransactionEntry(BaseModel):
     party_pan_provided: bool | None = None
     party_is_non_resident: bool = False
     external_ref: str | None = None
+    rule_context: RuleContext | None = None
 
     @field_validator("party_pan")
     @classmethod
@@ -50,14 +53,16 @@ class TDSEventSummary(BaseModel):
     id: str
     transaction_id: str
     category: str
+    decision_status: TDSDecisionStatus
+    review_reason: str | None
     tds_applicable: bool
     threshold_crossed_this_transaction: bool
     pan_not_provided: bool
     cumulative_before: Decimal
     cumulative_after: Decimal
-    taxable_amount: Decimal
-    tds_amount: Decimal
-    rate_percent: Decimal
+    taxable_amount: Decimal | None
+    tds_amount: Decimal | None
+    rate_percent: Decimal | None
     explanation_text: str
     filing_form_reference: str | None
     filing_deadline: str | None

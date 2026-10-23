@@ -8,13 +8,29 @@ from datetime import date
 from decimal import Decimal
 
 from app.sources.base import RawTransaction, TransactionSource
+from app.rule_engine.context import RuleContext
 
 _VENDOR_TEMPLATES = [
-    ("Skyline Consulting", "Professional consulting fee for {month}", (8000, 15000)),
-    ("Greenview Properties", "Office rent for {month}", (25000, 45000)),
-    ("BuildRight Contractors", "Payment to contractor for renovation work", (10000, 60000)),
-    ("Apex Freight Brokers", "Freight commission payout", (3000, 9000)),
-    ("Metro Bank FD", "Fixed deposit interest credited", (2000, 8000)),
+    (
+        "Skyline Consulting",
+        "Professional consulting fee for {month}",
+        (8000, 15000),
+        RuleContext(payer_is_specified_person=True, service_kind="professional"),
+    ),
+    ("Greenview Properties", "Office rent for {month}", (25000, 45000), None),
+    (
+        "BuildRight Contractors",
+        "Payment to contractor for renovation work",
+        (10000, 60000),
+        RuleContext(payer_is_designated_person=True, payee_is_individual_or_huf=True),
+    ),
+    (
+        "Apex Freight Brokers",
+        "Freight commission payout",
+        (3000, 9000),
+        RuleContext(payer_is_specified_person=True),
+    ),
+    ("Metro Bank FD", "Fixed deposit interest credited", (2000, 8000), None),
 ]
 
 _MONTH_NAMES = [
@@ -35,7 +51,7 @@ class SyntheticFeedGenerator(TransactionSource):
     def fetch(self) -> list[RawTransaction]:
         transactions: list[RawTransaction] = []
 
-        for vendor_name, description_template, (low, high) in _VENDOR_TEMPLATES:
+        for vendor_name, description_template, (low, high), rule_context in _VENDOR_TEMPLATES:
             for month_offset, month_name in enumerate(_MONTH_NAMES):
                 if self._rng.random() < 0.15:  # occasionally skip a month, like real payments do
                     continue
@@ -52,6 +68,7 @@ class SyntheticFeedGenerator(TransactionSource):
                         party_name=vendor_name,
                         description=description_template.format(month=month_name),
                         external_ref=f"SYN-{vendor_name[:4].upper()}-{month_offset}",
+                        rule_context=rule_context,
                     )
                 )
 

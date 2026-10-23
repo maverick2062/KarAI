@@ -9,10 +9,17 @@ your total payments crossed ₹30,000" rather than just a bare number.
 """
 
 from app.rule_engine.evaluate import TDSComputationResult
-from app.rule_engine.section_393 import RULE_TABLE_DISCLAIMER
+from app.rule_engine.section_393 import RULE_TABLE_DISCLAIMER, TDSDecisionStatus
 
 
 def render_explanation(result: TDSComputationResult, vendor_name: str) -> str:
+    if result.decision_status == TDSDecisionStatus.NEEDS_REVIEW:
+        return (
+            f"No TDS amount was calculated for {vendor_name}. Manual review is required: "
+            f"{result.review_reason or 'required tax facts are missing.'} "
+            f"{RULE_TABLE_DISCLAIMER}"
+        )
+
     if result.rule is None:
         return (
             "This transaction wasn't classified under any Section 393 TDS category, "
@@ -28,14 +35,18 @@ def render_explanation(result: TDSComputationResult, vendor_name: str) -> str:
         else ""
     )
 
-    if not result.tds_applicable and result.rule.threshold_basis.value == "per_transaction":
+    if (
+        not result.tds_applicable
+        and result.rule.threshold_basis.value == "per_transaction"
+        and result.tds_amount is not None
+    ):
         return (
             f"No TDS due on this ₹{result.cumulative_after - result.cumulative_before:,.2f} payment to "
             f"{vendor_name} under {rule.table_item} — the transaction is below the "
             f"₹{rule.threshold_amount:,.2f} per-transaction threshold. {RULE_TABLE_DISCLAIMER}"
         )
 
-    if not result.tds_applicable:
+    if not result.tds_applicable and result.tds_amount is not None:
         remaining = rule.threshold_amount - result.cumulative_after
         return (
             f"No TDS due yet under {rule.table_item}. Your total payments to {vendor_name} "
@@ -43,6 +54,9 @@ def render_explanation(result: TDSComputationResult, vendor_name: str) -> str:
             f"₹{rule.threshold_amount:,.2f} threshold (₹{remaining:,.2f} remaining before TDS applies). "
             f"{RULE_TABLE_DISCLAIMER}"
         )
+
+    if result.tds_amount is None or result.rate_percent is None or result.taxable_amount is None:
+        raise ValueError("A TDS calculation is missing its amount or rate.")
 
     if (
         result.single_payment_threshold_triggered

@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from app.advance_tax.projector import AdvanceTaxProjection
+from app.rule_engine.section_393 import TDSDecisionStatus
 
 
 @dataclass(frozen=True)
@@ -14,10 +15,12 @@ class TDSEventRow:
     vendor_name: str
     category: str
     amount: Decimal
+    decision_status: TDSDecisionStatus
+    review_reason: str | None
     tds_applicable: bool
     pan_not_provided: bool
-    tds_amount: Decimal
-    rate_percent: Decimal
+    tds_amount: Decimal | None
+    rate_percent: Decimal | None
     explanation: str
     filing_form_reference: str | None
     filing_deadline: str | None
@@ -36,8 +39,15 @@ class ReportInput:
 
     @property
     def total_tds_due(self) -> Decimal:
-        return sum((e.tds_amount for e in self.tds_events if e.tds_applicable), Decimal("0"))
+        return sum(
+            (e.tds_amount or Decimal("0") for e in self.tds_events if e.tds_applicable),
+            Decimal("0"),
+        )
 
     @property
     def flagged_count(self) -> int:
         return sum(1 for e in self.tds_events if e.tds_applicable)
+
+    @property
+    def needs_review_count(self) -> int:
+        return sum(1 for e in self.tds_events if e.decision_status == TDSDecisionStatus.NEEDS_REVIEW)

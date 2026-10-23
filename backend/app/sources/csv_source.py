@@ -1,9 +1,11 @@
 import csv
 import io
+import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from app.sources.base import RawTransaction, TransactionSource, TransactionSourceError, normalize_pan
+from app.rule_engine.context import RuleContext
 
 MAX_ROWS = 500_000
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB, per FR-07
@@ -33,6 +35,19 @@ def _parse_amount(value: str) -> Decimal:
     return amount
 
 
+def _parse_optional_bool(value: str, row_index: int, field: str) -> bool | None:
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized in {"true", "yes", "1"}:
+        return True
+    if normalized in {"false", "no", "0"}:
+        return False
+    raise TransactionSourceError(
+        f"Invalid {field} on CSV row {row_index}: expected true/false, yes/no, or 1/0."
+    )
+
+
 class CSVTransactionSource(TransactionSource):
     """Parses an uploaded CSV into RawTransactions.
 
@@ -40,7 +55,9 @@ class CSVTransactionSource(TransactionSource):
     the required field names (``transaction_date``, ``amount``, ``party_name``,
     ``description``, ``declared_category``, ``party_gstin``, ``external_ref``),
     values are the actual column headers present in the uploaded file. If
-    omitted, column headers are assumed to already match the required names.
+    omitted, column headers are assumed to already match the field names.
+    Optional ``party_is_non_resident`` and JSON ``rule_context`` fields are
+    parsed when present.
     """
 
     def __init__(self, file_bytes: bytes, column_mapping: dict[str, str] | None = None):
@@ -85,6 +102,22 @@ class CSVTransactionSource(TransactionSource):
             except ValueError as exc:
                 raise TransactionSourceError(f"Invalid PAN on CSV row {row_index}: {exc}") from exc
 
+            rule_context = None
+            raw_rule_context = get("rule_context")
+            if raw_rule_context:
+                try:
+                    context_payload = json.loads(raw_rule_context)
+                    rule_context = RuleContext.model_validate(context_payload)
+                except (json.JSONDecodeError, ValueError) as exc:
+                    raise TransactionSourceError(
+                        f"Invalid rule_context on CSV row {row_index}: {exc}"
+                    ) from exc
+            party_is_non_resident = _parse_optional_bool(
+                get("party_is_non_resident"),
+                row_index,
+                "party_is_non_resident",
+            )
+
             try:
                 amount = _parse_amount(get("amount"))
             except TransactionSourceError as exc:
@@ -102,7 +135,9 @@ class CSVTransactionSource(TransactionSource):
                     party_pan_provided=(
                         normalized_pan is not None if "party_pan" in reader.fieldnames else None
                     ),
+                    party_is_non_resident=party_is_non_resident is True,
                     external_ref=get("external_ref") or None,
+                    rule_context=rule_context,
                 )
             )
 

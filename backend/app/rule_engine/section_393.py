@@ -15,7 +15,7 @@ from decimal import Decimal
 from enum import Enum
 
 
-RULE_TABLE_VERSION = "ITA2025-S393-advisory-v2"
+RULE_TABLE_VERSION = "ITA2025-S393-advisory-v3"
 
 RULE_TABLE_DISCLAIMER = (
     "Advisory prototype only — this rule table is incomplete and is not a "
@@ -36,6 +36,12 @@ class ThresholdBasis(str, Enum):
     PER_PAYEE_PER_FY = "per_payee_per_fy"
     PER_TRANSACTION = "per_transaction"
     NONE = "none"
+
+
+class TDSDecisionStatus(str, Enum):
+    APPLICABLE = "applicable"
+    NOT_APPLICABLE = "not_applicable"
+    NEEDS_REVIEW = "needs_review"
 
 
 class TDSCategory(str, Enum):
@@ -154,13 +160,13 @@ SECTION_393_TABLE: dict[TDSCategory, TDSRule] = {
     TDSCategory.LOTTERY_WINNINGS: TDSRule(
         table_item="Section 393(3) — Table Sl. No. 1 (Lottery/Game-Show Winnings)",
         category=TDSCategory.LOTTERY_WINNINGS,
-        description="Winnings from lotteries, crossword puzzles, card games, game shows.",
+        description="Winnings from lotteries, crossword puzzles, card games, and games/shows.",
         threshold_amount=Decimal("10000"),
         threshold_basis=ThresholdBasis.PER_TRANSACTION,
         rate_percent=Decimal("30"),
-        rate_notes="Flat rate on net winnings per transaction/aggregate in FY — verify aggregation rule.",
+        rate_notes="30% withholding rate for the supported lottery/game-show category; prizes in kind and online-game winnings require separate review.",
         payee_scope=PayeeScope.RESIDENT,
-        source_note="Consolidates old Section 194B. Verify against current CBDT notification.",
+        source_note="Section 393(3), Table Sl. No. 1; amount must represent taxable winnings. Online-game winnings are not included in this branch.",
         old_act_reference="194B",
     ),
     TDSCategory.PROPERTY_PURCHASE: TDSRule(
@@ -180,12 +186,12 @@ SECTION_393_TABLE: dict[TDSCategory, TDSRule] = {
         table_item="Section 393 — Table Sl. No. 8(vi) (Virtual Digital Assets)",
         category=TDSCategory.VIRTUAL_DIGITAL_ASSETS,
         description="Consideration paid for transfer of virtual digital assets (crypto, NFTs).",
-        threshold_amount=Decimal("50000"),
+        threshold_amount=Decimal("10000"),
         threshold_basis=ThresholdBasis.PER_PAYEE_PER_FY,
         rate_percent=Decimal("1"),
-        rate_notes="₹10,000 threshold applies for non-specified-person payers — verify payer category.",
+        rate_notes="1%; Section 393(6) provides a ₹50,000 annual threshold only for qualifying individual/HUF payers; otherwise the threshold is ₹10,000.",
         payee_scope=PayeeScope.UNIVERSAL,
-        source_note="Consolidates old Section 194S. Verify against current CBDT notification.",
+        source_note="Section 393(1), Table Sl. No. 8(vi), with the conditional threshold in Section 393(6).",
         old_act_reference="194S",
     ),
     TDSCategory.NON_RESIDENT_PAYMENT: TDSRule(

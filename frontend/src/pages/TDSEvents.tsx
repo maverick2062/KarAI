@@ -4,7 +4,7 @@ import type { TDSEventSummary } from "../api/types";
 import { DisclaimerBanner } from "../components/DisclaimerBanner";
 import { currentFinancialYear, formatCurrency } from "../utils/financialYear";
 
-type Filter = "all" | "flagged" | "not_flagged";
+type Filter = "all" | "flagged" | "not_flagged" | "needs_review";
 
 export function TDSEvents() {
   const financialYear = currentFinancialYear();
@@ -21,7 +21,8 @@ export function TDSEvents() {
 
   const filteredEvents = useMemo(() => {
     if (filter === "flagged") return events.filter((e) => e.tds_applicable);
-    if (filter === "not_flagged") return events.filter((e) => !e.tds_applicable);
+    if (filter === "not_flagged") return events.filter((e) => e.decision_status === "not_applicable");
+    if (filter === "needs_review") return events.filter((e) => e.decision_status === "needs_review");
     return events;
   }, [events, filter]);
 
@@ -45,6 +46,12 @@ export function TDSEvents() {
           onClick={() => setFilter("not_flagged")}
         >
           No TDS due
+        </button>
+        <button
+          className={filter === "needs_review" ? "chip chip--active" : "chip"}
+          onClick={() => setFilter("needs_review")}
+        >
+          Needs review ({events.filter((e) => e.decision_status === "needs_review").length})
         </button>
       </div>
 
@@ -72,14 +79,22 @@ export function TDSEvents() {
               >
                 <td data-label="Category">{event.category.replace(/_/g, " ")}</td>
                 <td data-label="Payment total">{formatCurrency(event.cumulative_after)}</td>
-                <td data-label="TDS amount">{event.tds_applicable ? formatCurrency(event.tds_amount) : "—"}</td>
-                <td data-label="Rate">{event.rate_percent}%</td>
+                <td data-label="TDS amount">
+                  {event.tds_amount !== null ? formatCurrency(event.tds_amount) : "Not calculated"}
+                </td>
+                <td data-label="Rate">{event.rate_percent !== null ? `${event.rate_percent}%` : "—"}</td>
                 <td data-label="Flags">
                   {event.pan_not_provided && (
                     <span className="badge badge--danger">PAN missing</span>
                   )}
-                  <span className={"badge " + (event.tds_applicable ? "badge--warning" : "badge--success")}>
-                    {event.tds_applicable ? "TDS due" : "Clear"}
+                  <span className={"badge " + (
+                    event.decision_status === "needs_review"
+                      ? "badge--danger"
+                      : event.tds_applicable ? "badge--warning" : "badge--success"
+                  )}>
+                    {event.decision_status === "needs_review"
+                      ? "Needs review"
+                      : event.tds_applicable ? "TDS due" : "No TDS"}
                   </span>
                 </td>
                 <td className="data-table__expand" aria-label="Show event details">
@@ -90,6 +105,7 @@ export function TDSEvents() {
                 <tr className="data-table__detail-row">
                   <td colSpan={6} className="explanation-row" data-label="Explanation">
                     <p>{event.explanation_text}</p>
+                    {event.review_reason && <p><strong>Missing or unsupported fact:</strong> {event.review_reason}</p>}
                     {event.filing_form_reference && (
                       <p>
                         <strong>File:</strong> {event.filing_form_reference}

@@ -65,6 +65,11 @@ def ingest_transactions(
             amount=raw.amount,
             description=raw.description,
             declared_category=raw.declared_category,
+            rule_context=(
+                raw.rule_context.model_dump(mode="json", exclude_none=True)
+                if raw.rule_context
+                else None
+            ),
             financial_year=financial_year,
         )
         db.add(transaction)
@@ -76,7 +81,13 @@ def ingest_transactions(
             payee_is_non_resident=raw.party_is_non_resident,
         )
         cumulative_before = get_cumulative_before(db, user_id, vendor.id, category, financial_year)
-        result = compute_tds(category, raw.amount, cumulative_before, pan_provided=pan_provided)
+        result = compute_tds(
+            category,
+            raw.amount,
+            cumulative_before,
+            pan_provided=pan_provided,
+            context=raw.rule_context,
+        )
 
         explanation = render_explanation(result, vendor.name)
 
@@ -85,6 +96,8 @@ def ingest_transactions(
             transaction_id=transaction.id,
             category=category,
             rule_table_version=result.rule_table_version,
+            decision_status=result.decision_status,
+            review_reason=result.review_reason,
             threshold_crossed_this_transaction=result.threshold_crossed_this_transaction,
             tds_applicable=result.tds_applicable,
             pan_not_provided=result.pan_not_provided,

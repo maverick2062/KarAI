@@ -28,6 +28,7 @@ def generate_pdf_report(data: ReportInput) -> bytes:
     story.append(Paragraph("Executive Summary", styles["Heading2"]))
     story.append(Paragraph(f"Transactions analyzed: {len(data.tds_events)}", styles["Normal"]))
     story.append(Paragraph(f"Transactions with a TDS obligation: {data.flagged_count}", styles["Normal"]))
+    story.append(Paragraph(f"Transactions needing review: {data.needs_review_count}", styles["Normal"]))
     story.append(Paragraph(f"Total TDS due: ₹{data.total_tds_due:,.2f}", styles["Normal"]))
 
     if data.advance_tax is not None and data.advance_tax.advance_tax_required:
@@ -41,27 +42,28 @@ def generate_pdf_report(data: ReportInput) -> bytes:
             )
 
     story.append(Spacer(1, 0.5 * cm))
-    story.append(Paragraph("Flagged Transactions", styles["Heading2"]))
+    story.append(Paragraph("TDS Decisions", styles["Heading2"]))
 
-    table_data = [["Date", "Vendor", "Category", "Amount", "TDS Due", "Rate", "PAN", "Form / Deadline"]]
+    table_data = [["Date", "Vendor", "Category", "Amount", "Decision", "TDS Due", "Rate"]]
     for event in data.tds_events:
-        if not event.tds_applicable:
-            continue
         table_data.append(
             [
                 event.transaction_date.isoformat(),
                 event.vendor_name,
                 event.category,
                 f"₹{event.amount:,.2f}",
-                f"₹{event.tds_amount:,.2f}",
-                f"{event.rate_percent}%",
-                "Not furnished" if event.pan_not_provided else "Furnished/unknown",
-                f"{event.filing_form_reference or '-'}\nby {event.filing_deadline or '-'}",
+                event.decision_status.value.replace("_", " ").title(),
+                f"₹{event.tds_amount:,.2f}" if event.tds_amount is not None else "—",
+                f"{event.rate_percent}%" if event.rate_percent is not None else "—",
             ]
         )
+        if event.decision_status.value == "needs_review":
+            table_data[-1][4] += f": {event.review_reason or event.explanation}"
+        elif event.tds_applicable:
+            table_data[-1][4] += f" (PAN: {'Not furnished' if event.pan_not_provided else 'Furnished/unknown'})"
 
     if len(table_data) == 1:
-        story.append(Paragraph("No transactions currently have a TDS obligation.", styles["Normal"]))
+        story.append(Paragraph("No TDS decisions are available for this period.", styles["Normal"]))
     else:
         table = Table(table_data, repeatRows=1)
         table.setStyle(

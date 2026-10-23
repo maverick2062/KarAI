@@ -37,6 +37,8 @@ def _build_report_input(db: Session, user: User, financial_year: str) -> ReportI
             vendor_name=txn.vendor.name if txn.vendor else "Unknown Payee",
             category=event.category.value,
             amount=txn.amount,
+            decision_status=event.decision_status,
+            review_reason=event.review_reason,
             tds_applicable=event.tds_applicable,
             pan_not_provided=event.pan_not_provided,
             tds_amount=event.tds_amount,

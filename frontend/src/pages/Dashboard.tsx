@@ -27,7 +27,8 @@ export function Dashboard() {
   }, [financialYear]);
 
   const flagged = tdsEvents.filter((e) => e.tds_applicable);
-  const totalTdsDue = flagged.reduce((sum, e) => sum + parseFloat(e.tds_amount), 0);
+  const needsReview = tdsEvents.filter((e) => e.decision_status === "needs_review");
+  const totalTdsDue = flagged.reduce((sum, e) => sum + Number(e.tds_amount ?? 0), 0);
   const upcomingDeadlines = [...new Set(flagged.map((e) => e.filing_deadline).filter(Boolean))]
     .sort()
     .slice(0, 5) as string[];
@@ -62,6 +63,7 @@ export function Dashboard() {
             <KpiCard label="Transactions processed" value={String(transactions.length)} />
             <KpiCard label="Flagged with TDS due" value={String(flagged.length)} tone={riskLevel} />
             <KpiCard label="Total TDS due" value={formatCurrency(totalTdsDue)} tone={flagged.length ? "warning" : "default"} />
+            <KpiCard label="Needs manual review" value={String(needsReview.length)} tone={needsReview.length ? "danger" : "success"} />
             <KpiCard
               label="Overall risk level"
               value={riskLevel === "danger" ? "High" : riskLevel === "warning" ? "Medium" : "Low"}

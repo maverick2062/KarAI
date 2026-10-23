@@ -9,6 +9,7 @@ from app.models.advance_tax import TaxRegime
 from app.reports.excel_report import generate_excel_report
 from app.reports.pdf_report import generate_pdf_report
 from app.reports.report_data import ReportInput, TDSEventRow
+from app.rule_engine.section_393 import TDSDecisionStatus
 
 
 def _sample_report_input() -> ReportInput:
@@ -18,6 +19,8 @@ def _sample_report_input() -> ReportInput:
             vendor_name="Skyline Consulting",
             category="professional_fees",
             amount=Decimal("35000"),
+            decision_status=TDSDecisionStatus.APPLICABLE,
+            review_reason=None,
             tds_applicable=True,
             pan_not_provided=False,
             tds_amount=Decimal("3500.00"),
@@ -31,6 +34,8 @@ def _sample_report_input() -> ReportInput:
             vendor_name="Small Vendor",
             category="commission_brokerage",
             amount=Decimal("5000"),
+            decision_status=TDSDecisionStatus.NOT_APPLICABLE,
+            review_reason=None,
             tds_applicable=False,
             pan_not_provided=False,
             tds_amount=Decimal("0"),
@@ -59,6 +64,7 @@ class TestReportInputAggregates:
         data = _sample_report_input()
         assert data.total_tds_due == Decimal("3500.00")
         assert data.flagged_count == 1
+        assert data.needs_review_count == 0
 
 
 class TestPdfReport:
@@ -97,3 +103,28 @@ class TestExcelReport:
         summary_values = [cell.value for row in workbook["Summary"].iter_rows() for cell in row if cell.value]
         assert any("alice@example.com" in str(v) for v in summary_values)
         assert any("deadbeef" in str(v) for v in summary_values)
+
+    def test_review_decisions_are_not_reported_as_zero_tds(self):
+        data = _sample_report_input()
+        review_event = TDSEventRow(
+            transaction_date=date(2026, 6, 10),
+            vendor_name="Review Payee",
+            category="rent",
+            amount=Decimal("40000"),
+            decision_status=TDSDecisionStatus.NEEDS_REVIEW,
+            review_reason="Monthly rent basis is unavailable.",
+            tds_applicable=False,
+            pan_not_provided=False,
+            tds_amount=None,
+            rate_percent=None,
+            explanation="Manual review required.",
+            filing_form_reference=None,
+            filing_deadline=None,
+        )
+        review_data = data.__class__(**{**data.__dict__, "tds_events": [review_event]})
+        assert review_data.total_tds_due == Decimal("0")
+        assert review_data.needs_review_count == 1
+        workbook = load_workbook(io.BytesIO(generate_excel_report(review_data)))
+        rows = list(workbook["Flagged Transactions"].iter_rows(values_only=True))
+        assert rows[1][4] == "Needs Review"
+        assert rows[1][6] is None

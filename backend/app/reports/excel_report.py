@@ -22,6 +22,7 @@ def generate_excel_report(data: ReportInput) -> bytes:
     summary.append([])
     summary.append(["Transactions analyzed", len(data.tds_events)])
     summary.append(["Transactions with a TDS obligation", data.flagged_count])
+    summary.append(["Transactions needing review", data.needs_review_count])
     summary.append(["Total TDS due", float(data.total_tds_due)])
 
     if data.advance_tax is not None and data.advance_tax.advance_tax_required:
@@ -39,6 +40,7 @@ def generate_excel_report(data: ReportInput) -> bytes:
         "Vendor",
         "Category",
         "Amount",
+        "Decision",
         "TDS Applicable",
         "TDS Amount",
         "Rate (%)",
@@ -58,11 +60,12 @@ def generate_excel_report(data: ReportInput) -> bytes:
                 event.vendor_name,
                 event.category,
                 float(event.amount),
+                event.decision_status.value.replace("_", " ").title(),
                 "Yes" if event.tds_applicable else "No",
-                float(event.tds_amount),
-                float(event.rate_percent),
+                float(event.tds_amount) if event.tds_amount is not None else "",
+                float(event.rate_percent) if event.rate_percent is not None else "",
                 "Not furnished" if event.pan_not_provided else "Furnished/unknown",
-                event.explanation,
+                event.review_reason or event.explanation,
                 event.filing_form_reference or "",
                 event.filing_deadline or "",
             ]

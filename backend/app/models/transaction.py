@@ -2,7 +2,7 @@ import enum
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, JSON, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -31,6 +31,7 @@ class Transaction(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     description: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     declared_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    rule_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     financial_year: Mapped[str] = mapped_column(String(7), nullable=False, default=current_financial_year)
 

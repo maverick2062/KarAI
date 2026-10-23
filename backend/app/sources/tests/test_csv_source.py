@@ -4,10 +4,9 @@ from decimal import Decimal
 import pytest
 
 from app.sources.account_aggregator_stub import AccountAggregatorSource
-from app.sources.base import TransactionSourceError
+from app.sources.base import RawTransaction, TransactionSourceError
 from app.sources.csv_source import CSVTransactionSource
 from app.sources.manual_source import ManualEntryTransactionSource
-from app.sources.base import RawTransaction
 from app.sources.synthetic_feed import SyntheticFeedGenerator
 
 
@@ -36,6 +35,46 @@ class TestCSVTransactionSource:
         assert with_pan.party_pan_provided is True
         assert no_pan.party_pan is None
         assert no_pan.party_pan_provided is False
+
+    def test_parses_structured_rule_context(self):
+        csv_bytes = (
+            b'transaction_date,amount,party_name,rule_context\n'
+            b'2026-05-10,35000,Acme,"{""payer_is_designated_person"":true,""payee_is_individual_or_huf"":true}"\n'
+        )
+        transaction = CSVTransactionSource(csv_bytes).fetch()[0]
+        assert transaction.rule_context is not None
+        assert transaction.rule_context.payer_is_designated_person is True
+        assert transaction.rule_context.payee_is_individual_or_huf is True
+
+    def test_parses_nonresident_status_column(self):
+        transaction = CSVTransactionSource(
+            b"transaction_date,amount,party_name,party_is_non_resident\n"
+            b"2026-05-10,35000,Overseas Consultant,yes\n"
+        ).fetch()[0]
+        assert transaction.party_is_non_resident is True
+
+    def test_rejects_invalid_nonresident_status_column_value(self):
+        with pytest.raises(TransactionSourceError, match="Invalid party_is_non_resident on CSV row 1"):
+            CSVTransactionSource(
+                b"transaction_date,amount,party_name,party_is_non_resident\n"
+                b"2026-05-10,35000,Overseas Consultant,sometimes\n"
+            ).fetch()
+
+    def test_rejects_invalid_rule_context_json(self):
+        csv_bytes = (
+            b'transaction_date,amount,party_name,rule_context\n'
+            b'2026-05-10,35000,Acme,"{invalid}"\n'
+        )
+        with pytest.raises(TransactionSourceError, match="Invalid rule_context on CSV row 1"):
+            CSVTransactionSource(csv_bytes).fetch()
+
+    def test_synthetic_feed_supplies_facts_for_supported_demo_rules(self):
+        transactions = SyntheticFeedGenerator(seed=42).fetch()
+        contexts_by_party = {transaction.party_name: transaction.rule_context for transaction in transactions}
+        assert contexts_by_party["Skyline Consulting"].service_kind == "professional"
+        assert contexts_by_party["BuildRight Contractors"].payer_is_designated_person is True
+        assert contexts_by_party["Apex Freight Brokers"].payer_is_specified_person is True
+        assert contexts_by_party["Greenview Properties"] is None
 
     def test_rejects_invalid_pan_format(self):
         csv_bytes = (

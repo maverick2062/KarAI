@@ -98,6 +98,7 @@ def manual_entry(
             party_pan_provided=entry.party_pan_provided,
             party_is_non_resident=entry.party_is_non_resident,
             external_ref=entry.external_ref,
+            rule_context=entry.rule_context,
         )
         for entry in payload.entries
     ]

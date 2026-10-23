@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 from app.models.common import generate_uuid, utcnow
-from app.rule_engine.section_393 import TDSCategory
+from app.rule_engine.section_393 import TDSCategory, TDSDecisionStatus
 
 if TYPE_CHECKING:
     from app.models.transaction import Transaction
@@ -24,6 +24,13 @@ class TDSEvent(Base):
 
     category: Mapped[TDSCategory] = mapped_column(Enum(TDSCategory), nullable=False)
     rule_table_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    decision_status: Mapped[TDSDecisionStatus] = mapped_column(
+        Enum(TDSDecisionStatus),
+        nullable=False,
+        default=TDSDecisionStatus.NOT_APPLICABLE,
+        server_default=TDSDecisionStatus.NOT_APPLICABLE.value,
+    )
+    review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     threshold_crossed_this_transaction: Mapped[bool] = mapped_column(Boolean, nullable=False)
     tds_applicable: Mapped[bool] = mapped_column(Boolean, nullable=False)
@@ -31,9 +38,9 @@ class TDSEvent(Base):
 
     cumulative_before: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     cumulative_after: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
-    taxable_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
-    tds_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
-    rate_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    taxable_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    tds_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    rate_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
 
     explanation_text: Mapped[str] = mapped_column(Text, nullable=False)
     filing_form_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)

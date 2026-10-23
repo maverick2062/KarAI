@@ -13,6 +13,7 @@ from datetime import date
 from decimal import Decimal
 import re
 
+from app.rule_engine.context import RuleContext
 
 PAN_PATTERN = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 
@@ -37,6 +38,7 @@ class RawTransaction:
     party_is_non_resident: bool = False
     external_ref: str | None = None
     party_pan_provided: bool | None = None
+    rule_context: RuleContext | None = None
 
 
 class TransactionSource(ABC):
