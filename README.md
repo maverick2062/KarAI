@@ -1,9 +1,8 @@
 # KarAI — Tax & TDS Intelligence for Freelancers and Individuals
 
-KarAI detects when a payment triggers a Tax Deducted at Source (TDS) obligation under India's
-Income Tax Act 2025 (Section 393), computes the TDS due with a plain-language explanation of
-*why*, projects quarterly advance-tax liability, and flags mismatches against your Annual
-Information Statement (AIS) — all before the government's own AI-driven scrutiny systems do.
+KarAI is a prototype for exploring Tax Deducted at Source (TDS) event detection, plain-language
+calculation explanations, advance-tax projections, and Annual Information Statement (AIS)
+discrepancy checks for Indian individuals and freelancers.
 
 **This is a working prototype, not a certified filing tool.** Every calculation carries an
 "AI-assisted, advisory only" disclaimer. Verify with a Chartered Accountant or the current CBDT
@@ -11,12 +10,11 @@ notification before filing or making a payment decision on the basis of anything
 
 ## What's real vs. what's stubbed
 
-The core intelligence — the thing that makes this product different — is fully implemented and
-tested:
+The product flows are implemented and tested as prototype behavior:
 
 | Capability | Status |
 |---|---|
-| Section 393 TDS rule engine (thresholds, rates, per-payee-per-FY tracking) | **Real**, unit-tested |
+| Section 393 TDS rule engine (advisory thresholds/rates, per-payee-per-FY tracking) | **Prototype**, unit-tested; not a complete or verified implementation of current law |
 | TDS event detection from a transaction stream | **Real**, unit-tested |
 | Plain-language explanation of every computation | **Real** |
 | Advance-tax quarterly projection + old/new regime comparator + 234B/234C interest | **Real**, unit-tested |
@@ -31,6 +29,12 @@ tested:
 Nothing here pretends to have these integrations. Each stub raises `NotImplementedError` with a
 docstring describing exactly what a real integration needs to implement, so plugging one in later
 is additive, not a rewrite.
+
+For PAN handling, manual entry lets you record whether the payee furnished PAN; CSV imports may
+include an optional `party_pan` column. A blank value in that column means PAN was not furnished,
+while omitting the column means PAN status is unknown. Supplied PANs are format-checked, not
+verified against a government database. Where PAN is explicitly recorded as not furnished, the
+TDS engine uses the higher of 20% or the scheduled rule rate and labels the event.
 
 ## Architecture
 
@@ -58,59 +62,102 @@ Backend modules (`backend/app/`):
 
 ## Running it
 
-### Docker (recommended)
+### Windows setup with Docker (recommended)
 
-```bash
-cp .env.example .env
-# edit .env: set JWT_SECRET and ENCRYPTION_KEY to real random values
-#   python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+Prerequisites:
+
+- Install Docker Desktop for Windows and make sure the Linux engine is running.
+- Install Git for Windows if you are cloning the repository.
+
+Open PowerShell in the repository root:
+
+```powershell
+Set-Location "D:\Nikhil\Nikhil\karai\karai"
+Copy-Item .env.example .env
+notepad .env
+```
+
+In `.env`, replace `JWT_SECRET` and `ENCRYPTION_KEY` with long random values. You can generate
+them in PowerShell with:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+TDS email alerts are sent to the account email after an ingestion run finds TDS due. To enable
+outbound email, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM_EMAIL`, and (if required by your
+provider) `SMTP_USERNAME`/`SMTP_PASSWORD` in `.env`. The app uses STARTTLS by default. Without
+SMTP settings, no email is sent and the backend logs a warning.
+
+Start the complete application:
+
+```powershell
 docker compose up --build
+```
+
+The backend automatically runs the Alembic database migration before starting, so the PostgreSQL
+tables are created on the first run. To run it in the background instead:
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+To stop the application containers:
+
+```powershell
+docker compose down
 ```
 
 - Frontend: http://localhost:5173
 - Backend API + docs: http://localhost:8000/docs
 - Postgres: localhost:5432
 
-> This environment didn't have Docker installed, so `docker compose up` itself was not run
-> directly here. Everything it wires together (Postgres 16, the FastAPI backend, the Vite
-> frontend) was verified working via the equivalent manual setup below, including the full
-> register → ingest → detect → report → delete-account flow end-to-end in a real browser.
-> Run `docker compose up --build` yourself to confirm the container wiring; if anything doesn't
-> come up, check `docker compose logs`.
+If a service does not start, inspect its logs:
 
-### Manual (no Docker)
+```powershell
+docker compose logs backend --tail=100
+docker compose logs db --tail=100
+docker compose logs frontend --tail=100
+```
+
+### Manual Windows setup (no Docker)
+
+This option requires PostgreSQL 16 running locally, with a database and user matching the
+`DATABASE_URL` value. Open two PowerShell terminals.
 
 Backend:
-```bash
-cd backend
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-export DATABASE_URL="postgresql+psycopg2://<user>@localhost:5432/karai_dev"
-export JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-export ENCRYPTION_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-export CORS_ORIGINS="http://localhost:5173"
+```powershell
+Set-Location "D:\Nikhil\Nikhil\karai\karai\backend"
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+$env:DATABASE_URL="postgresql+psycopg2://<user>:<password>@localhost:5432/karai"
+$env:JWT_SECRET = (python -c "import secrets; print(secrets.token_urlsafe(48))")
+$env:ENCRYPTION_KEY = (python -c "import secrets; print(secrets.token_urlsafe(32))")
+$env:CORS_ORIGINS="http://localhost:5173"
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
 Frontend:
-```bash
-cd frontend
+```powershell
+Set-Location "D:\Nikhil\Nikhil\karai\karai\frontend"
 npm install
 npm run dev
 ```
 
 ### Tests
 
-```bash
-cd backend
-source .venv/bin/activate
+```powershell
+Set-Location "D:\Nikhil\Nikhil\karai\karai\backend"
+.\.venv\Scripts\Activate.ps1
 pytest --cov=app --cov-report=term-missing
 ```
 
-102 tests, 98% coverage, concentrated on the rule engine, TDS detector, advance-tax projector,
-and AIS diffing (the parts making the actual tax-correctness claims), plus auth/security and
-full API integration tests (row-level isolation, account deletion cascade, rate limiting).
+Tests cover the rule engine, TDS detector, advance-tax projector, AIS diffing, auth/security, and
+API integration behavior. Run the command above for the current test and coverage results.
 
 ## Try it in 60 seconds
 
@@ -127,14 +174,20 @@ full API integration tests (row-level isolation, account deletion cascade, rate 
 
 ## Known limitations / honest gaps
 
-- **Tax slabs and Section 393 thresholds are version-stamped but not live-verified.** They mirror
-  publicly documented values as of this build and will drift from reality as Finance Bills and
-  CBDT circulars are issued. `RULE_TABLE_VERSION` / `SLAB_VERSION` exist specifically so a real
-  deployment can track and update them without touching call sites.
+- **Tax slabs and Section 393 rules are advisory and not a complete or current-law-verified
+  implementation.** In particular, the TDS engine does not yet model all payer/payee categories,
+  monthly rent periods, asset-specific rates, property stamp-duty valuation, or conditional
+  threshold exceptions (including dividend and VDA cases). Do not rely on its results to decide withholding.
+  Have a Chartered Accountant validate the applicable law and taxpayer facts before changing rule
+  values or using them for compliance. `RULE_TABLE_VERSION` / `SLAB_VERSION` identify the
+  calculation versions; they do not imply legal verification.
+- **Automatic description classification is only a heuristic.** Text that matches multiple TDS
+  categories is left unclassified; select the correct category explicitly rather than relying on
+  an ambiguous description.
 - **No surcharge or senior-citizen tax slabs.** Out of scope for this prototype; noted in
   `advance_tax/slabs.py`.
-- **No marginal relief edge case beyond the documented 87A cliff logic** — verified against the
-  standard formula but not against every historical edge case.
+- **Advance-tax rules are also advisory.** The 87A marginal-relief and Section 234C installment
+  calculations need validation against the applicable tax year and current law before use.
 - **Password-reset-via-OTP is not implemented** (account lockout after 5 failed attempts is).
 - **No API-key management for third-party ingestion** (Tally/Zoho-style integrations) — the
   `sources/` abstraction supports adding one without touching the detection pipeline.
