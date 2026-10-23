@@ -19,6 +19,7 @@ def _sample_report_input() -> ReportInput:
             category="professional_fees",
             amount=Decimal("35000"),
             tds_applicable=True,
+            pan_not_provided=False,
             tds_amount=Decimal("3500.00"),
             rate_percent=Decimal("10"),
             explanation="Crossed the ₹30,000 threshold.",
@@ -31,6 +32,7 @@ def _sample_report_input() -> ReportInput:
             category="commission_brokerage",
             amount=Decimal("5000"),
             tds_applicable=False,
+            pan_not_provided=False,
             tds_amount=Decimal("0"),
             rate_percent=Decimal("2"),
             explanation="Below threshold.",
@@ -84,6 +86,7 @@ class TestExcelReport:
         header_row = [cell.value for cell in flagged_sheet[1]]
         assert "Vendor" in header_row
         assert "TDS Amount" in header_row
+        assert "PAN Status" in header_row
 
         first_data_row = [cell.value for cell in flagged_sheet[2]]
         assert first_data_row[1] == "Skyline Consulting"

@@ -38,6 +38,7 @@ def _build_report_input(db: Session, user: User, financial_year: str) -> ReportI
             category=event.category.value,
             amount=txn.amount,
             tds_applicable=event.tds_applicable,
+            pan_not_provided=event.pan_not_provided,
             tds_amount=event.tds_amount,
             rate_percent=event.rate_percent,
             explanation=event.explanation_text,

@@ -1,17 +1,13 @@
-"""Section 393 TDS rule table (Income Tax Act 2025, effective 1 April 2026).
+"""Advisory Section 393 TDS rule table (Income Tax Act 2025).
 
-Section 393 consolidated the old Income Tax Act 1961's scattered non-salary TDS
-sections (194A, 194C, 194H, 194I, 194J, 194-IA, 194S, ...) into a single table.
-The thresholds and rates below mirror the commonly-published, publicly-known
-values for these payment categories as carried into the consolidated table.
+Section 393 consolidated several non-salary TDS provisions from the Income-tax
+Act, 1961. This prototype does not yet model all statutory payer, payee,
+payment-type, and valuation distinctions.
 
-IMPORTANT: this table is a versioned, swappable config, not a hardcoded belief.
-CBDT circulars are now legally binding under ITA 2025 and rates/thresholds are
-routinely revised in the annual Finance Bill. Before this is used for any real
-filing decision, the table must be reconciled against the current CBDT
-notification for the applicable financial year. Every value below carries a
-``source_note`` for exactly that reason, and every API response built on top
-of this table must surface the disclaimer in ``RULE_TABLE_DISCLAIMER``.
+IMPORTANT: the values below are incomplete, advisory mappings, not a verified
+implementation of the current law. Do not rely on them to decide whether or
+how much tax to deduct. Reconcile each rule with the applicable Act, Rules,
+notifications, and taxpayer facts before using it for compliance.
 """
 
 from dataclasses import dataclass
@@ -19,13 +15,14 @@ from decimal import Decimal
 from enum import Enum
 
 
-RULE_TABLE_VERSION = "ITA2025-S393-v1"
+RULE_TABLE_VERSION = "ITA2025-S393-advisory-v2"
 
 RULE_TABLE_DISCLAIMER = (
-    "AI-assisted, advisory only. TDS categories, thresholds, and rates are "
-    "based on publicly known Section 393 mappings and may lag official CBDT "
-    "notifications. Verify with a Chartered Accountant or the CBDT circular "
-    "in force before filing or relying on this for a compliance decision."
+    "Advisory prototype only — this rule table is incomplete and is not a "
+    "verified implementation of current tax law. It does not model all payer, "
+    "payee, payment-type, or valuation conditions. Do not rely on this result "
+    "to decide withholding. Verify the applicable law and facts with a "
+    "Chartered Accountant before taking action."
 )
 
 
@@ -38,7 +35,7 @@ class PayeeScope(str, Enum):
 class ThresholdBasis(str, Enum):
     PER_PAYEE_PER_FY = "per_payee_per_fy"
     PER_TRANSACTION = "per_transaction"
-    NONE = "none"  # TDS applies from the first rupee (typical for NR payments)
+    NONE = "none"
 
 
 class TDSCategory(str, Enum):
@@ -67,11 +64,13 @@ class TDSRule:
     payee_scope: PayeeScope
     source_note: str
     old_act_reference: str
+    single_payment_threshold_amount: Decimal | None = None
+    threshold_inclusive: bool = False
 
 
 SECTION_393_TABLE: dict[TDSCategory, TDSRule] = {
     TDSCategory.PROFESSIONAL_FEES: TDSRule(
-        table_item="Section 393 — Table Item 3 (Professional/Technical Fees)",
+        table_item="Section 393 — Table Sl. No. 6(iii) (Professional/Technical Fees)",
         category=TDSCategory.PROFESSIONAL_FEES,
         description="Fees for professional or technical services paid to a resident.",
         threshold_amount=Decimal("30000"),
@@ -83,7 +82,7 @@ SECTION_393_TABLE: dict[TDSCategory, TDSRule] = {
         old_act_reference="194J",
     ),
     TDSCategory.RENT: TDSRule(
-        table_item="Section 393 — Table Item 5 (Rent)",
+        table_item="Section 393 — Table Sl. No. 2 (Rent)",
         category=TDSCategory.RENT,
         description="Rent paid for land, building, furniture, plant, or machinery.",
         threshold_amount=Decimal("240000"),
@@ -95,19 +94,23 @@ SECTION_393_TABLE: dict[TDSCategory, TDSRule] = {
         old_act_reference="194I",
     ),
     TDSCategory.CONTRACTOR_PAYMENTS: TDSRule(
-        table_item="Section 393 — Table Item 2 (Contractor/Sub-Contractor Payments)",
+        table_item="Section 393 — Table Sl. No. 6(i) (Contractor/Sub-Contractor Payments)",
         category=TDSCategory.CONTRACTOR_PAYMENTS,
-        description="Payments to resident contractors or sub-contractors for work.",
+        description=(
+            "Payments to resident contractors or sub-contractors for work; TDS applies "
+            "if a single payment exceeds ₹30,000 or annual payments exceed ₹1,00,000."
+        ),
         threshold_amount=Decimal("100000"),
         threshold_basis=ThresholdBasis.PER_PAYEE_PER_FY,
         rate_percent=Decimal("2"),
-        rate_notes="1% for individual/HUF payees, 2% for others; single-payment threshold of 30,000 also applies — verify.",
+        rate_notes="1% for individual/HUF payees, 2% for others; verify the applicable rate.",
         payee_scope=PayeeScope.RESIDENT,
         source_note="Consolidates old Section 194C. Verify against current CBDT notification.",
         old_act_reference="194C",
+        single_payment_threshold_amount=Decimal("30000"),
     ),
     TDSCategory.COMMISSION_BROKERAGE: TDSRule(
-        table_item="Section 393 — Table Item 6 (Commission or Brokerage)",
+        table_item="Section 393 — Table Sl. No. 1(ii) (Commission or Brokerage)",
         category=TDSCategory.COMMISSION_BROKERAGE,
         description="Commission or brokerage paid to a resident.",
         threshold_amount=Decimal("20000"),
@@ -119,7 +122,7 @@ SECTION_393_TABLE: dict[TDSCategory, TDSRule] = {
         old_act_reference="194H",
     ),
     TDSCategory.INTEREST_OTHER_THAN_SECURITIES: TDSRule(
-        table_item="Section 393 — Table Item 1 (Interest other than on Securities)",
+        table_item="Section 393 — Table Sl. No. 5(ii)/(iii) (Interest other than on Securities)",
         category=TDSCategory.INTEREST_OTHER_THAN_SECURITIES,
         description="Interest paid by banks/others, other than interest on securities.",
         threshold_amount=Decimal("40000"),
@@ -131,19 +134,25 @@ SECTION_393_TABLE: dict[TDSCategory, TDSRule] = {
         old_act_reference="194A",
     ),
     TDSCategory.DIVIDEND: TDSRule(
-        table_item="Section 393 — Table Item 4 (Dividend)",
+        table_item="Section 393 — Table Sl. No. 7 (Dividend)",
         category=TDSCategory.DIVIDEND,
         description="Dividend paid by a domestic company to a resident shareholder.",
         threshold_amount=Decimal("10000"),
         threshold_basis=ThresholdBasis.PER_PAYEE_PER_FY,
         rate_percent=Decimal("10"),
-        rate_notes="Verify current threshold — has been revised in recent Finance Bills.",
+        rate_notes=(
+            "The base table has no threshold; a ₹10,000 exemption is conditional on "
+            "qualifying non-cash payments to individual shareholders."
+        ),
         payee_scope=PayeeScope.RESIDENT,
-        source_note="Consolidates old Section 194. Verify against current CBDT notification.",
+        source_note=(
+            "Section 393(6) includes a conditional dividend exemption; payer, payee, and "
+            "payment-mode facts are not modeled."
+        ),
         old_act_reference="194",
     ),
     TDSCategory.LOTTERY_WINNINGS: TDSRule(
-        table_item="Section 393 — Table Item 7 (Winnings from Lottery/Game Shows)",
+        table_item="Section 393(3) — Table Sl. No. 1 (Lottery/Game-Show Winnings)",
         category=TDSCategory.LOTTERY_WINNINGS,
         description="Winnings from lotteries, crossword puzzles, card games, game shows.",
         threshold_amount=Decimal("10000"),
@@ -155,7 +164,7 @@ SECTION_393_TABLE: dict[TDSCategory, TDSRule] = {
         old_act_reference="194B",
     ),
     TDSCategory.PROPERTY_PURCHASE: TDSRule(
-        table_item="Section 393 — Table Item 8 (Transfer of Immovable Property)",
+        table_item="Section 393 — Table Sl. No. 3(i) (Transfer of Immovable Property)",
         category=TDSCategory.PROPERTY_PURCHASE,
         description="Consideration paid for transfer of immovable property (other than agricultural land).",
         threshold_amount=Decimal("5000000"),
@@ -165,9 +174,10 @@ SECTION_393_TABLE: dict[TDSCategory, TDSRule] = {
         payee_scope=PayeeScope.UNIVERSAL,
         source_note="Consolidates old Section 194-IA. Verify against current CBDT notification.",
         old_act_reference="194-IA",
+        threshold_inclusive=True,
     ),
     TDSCategory.VIRTUAL_DIGITAL_ASSETS: TDSRule(
-        table_item="Section 393 — Table Item 9 (Virtual Digital Assets)",
+        table_item="Section 393 — Table Sl. No. 8(vi) (Virtual Digital Assets)",
         category=TDSCategory.VIRTUAL_DIGITAL_ASSETS,
         description="Consideration paid for transfer of virtual digital assets (crypto, NFTs).",
         threshold_amount=Decimal("50000"),

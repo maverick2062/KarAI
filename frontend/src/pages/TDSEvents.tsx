@@ -52,7 +52,7 @@ export function TDSEvents() {
 
       {!isLoading && filteredEvents.length === 0 && <p className="empty-state">No transactions match this filter.</p>}
 
-      <table className="data-table">
+      <table className="data-table data-table--responsive">
         <thead>
           <tr>
             <th>Category</th>
@@ -67,23 +67,28 @@ export function TDSEvents() {
           {filteredEvents.map((event) => (
             <Fragment key={event.id}>
               <tr
-                className="data-table__row--clickable"
+                className="data-table__event-row data-table__row--clickable"
                 onClick={() => setExpandedId(expandedId === event.id ? null : event.id)}
               >
-                <td>{event.category.replace(/_/g, " ")}</td>
-                <td>{formatCurrency(event.cumulative_after)}</td>
-                <td>{event.tds_applicable ? formatCurrency(event.tds_amount) : "—"}</td>
-                <td>{event.rate_percent}%</td>
-                <td>
+                <td data-label="Category">{event.category.replace(/_/g, " ")}</td>
+                <td data-label="Payment total">{formatCurrency(event.cumulative_after)}</td>
+                <td data-label="TDS amount">{event.tds_applicable ? formatCurrency(event.tds_amount) : "—"}</td>
+                <td data-label="Rate">{event.rate_percent}%</td>
+                <td data-label="Flags">
+                  {event.pan_not_provided && (
+                    <span className="badge badge--danger">PAN missing</span>
+                  )}
                   <span className={"badge " + (event.tds_applicable ? "badge--warning" : "badge--success")}>
                     {event.tds_applicable ? "TDS due" : "Clear"}
                   </span>
                 </td>
-                <td>{expandedId === event.id ? "▲" : "▼"}</td>
+                <td className="data-table__expand" aria-label="Show event details">
+                  {expandedId === event.id ? "▲" : "▼"}
+                </td>
               </tr>
               {expandedId === event.id && (
-                <tr>
-                  <td colSpan={6} className="explanation-row">
+                <tr className="data-table__detail-row">
+                  <td colSpan={6} className="explanation-row" data-label="Explanation">
                     <p>{event.explanation_text}</p>
                     {event.filing_form_reference && (
                       <p>

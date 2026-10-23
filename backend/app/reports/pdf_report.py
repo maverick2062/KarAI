@@ -43,7 +43,7 @@ def generate_pdf_report(data: ReportInput) -> bytes:
     story.append(Spacer(1, 0.5 * cm))
     story.append(Paragraph("Flagged Transactions", styles["Heading2"]))
 
-    table_data = [["Date", "Vendor", "Category", "Amount", "TDS Due", "Rate", "Form / Deadline"]]
+    table_data = [["Date", "Vendor", "Category", "Amount", "TDS Due", "Rate", "PAN", "Form / Deadline"]]
     for event in data.tds_events:
         if not event.tds_applicable:
             continue
@@ -55,6 +55,7 @@ def generate_pdf_report(data: ReportInput) -> bytes:
                 f"₹{event.amount:,.2f}",
                 f"₹{event.tds_amount:,.2f}",
                 f"{event.rate_percent}%",
+                "Not furnished" if event.pan_not_provided else "Furnished/unknown",
                 f"{event.filing_form_reference or '-'}\nby {event.filing_deadline or '-'}",
             ]
         )

@@ -2,6 +2,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.explainability.renderer import render_explanation
 from app.rule_engine.evaluate import classify_category, compute_tds
 from app.rule_engine.section_393 import TDSCategory
 
@@ -44,9 +45,28 @@ class TestClassifyCategory:
     def test_no_match_returns_unclassified(self):
         assert classify_category("miscellaneous grocery purchase") == TDSCategory.UNCLASSIFIED
 
+    @pytest.mark.parametrize(
+        "description",
+        ["Payment to parent", "Current account charges"],
+    )
+    def test_keyword_match_does_not_match_inside_other_words(self, description):
+        assert classify_category(description) == TDSCategory.UNCLASSIFIED
+
+    def test_overlapping_keyword_matches_require_explicit_category(self):
+        assert classify_category("interest on rent deposit") == TDSCategory.UNCLASSIFIED
+
+    def test_explicit_category_resolves_ambiguous_description(self):
+        assert (
+            classify_category(
+                "interest on rent deposit",
+                declared_category="interest_other_than_securities",
+            )
+            == TDSCategory.INTEREST_OTHER_THAN_SECURITIES
+        )
+
 
 class TestComputeTdsProfessionalFees:
-    """Section 393 Table Item 3 — threshold ₹30,000/payee/FY, rate 10%."""
+    """Exercise professional-fee behavior against the configured advisory rule."""
 
     def test_below_threshold_no_tds(self):
         result = compute_tds(TDSCategory.PROFESSIONAL_FEES, Decimal("10000"), Decimal("5000"))
@@ -78,7 +98,7 @@ class TestComputeTdsProfessionalFees:
 
 
 class TestComputeTdsRent:
-    """Section 393 Table Item 5 — threshold ₹2,40,000/payee/FY, rate 10%."""
+    """Exercise rent behavior against the configured advisory rule."""
 
     def test_large_single_payment_crossing_threshold(self):
         result = compute_tds(TDSCategory.RENT, Decimal("300000"), Decimal("0"))
@@ -87,8 +107,65 @@ class TestComputeTdsRent:
         assert result.tds_amount == Decimal("30000.00")
 
 
+class TestComputeTdsContractorPayments:
+    """Exercise contractor threshold behavior against the configured advisory rule."""
+
+    def test_single_payment_at_threshold_does_not_trigger_tds(self):
+        result = compute_tds(TDSCategory.CONTRACTOR_PAYMENTS, Decimal("30000"))
+        assert result.tds_applicable is False
+        assert result.tds_amount == Decimal("0")
+
+    def test_annual_aggregate_at_threshold_does_not_trigger_tds(self):
+        result = compute_tds(
+            TDSCategory.CONTRACTOR_PAYMENTS,
+            Decimal("30000"),
+            Decimal("70000"),
+        )
+        assert result.tds_applicable is False
+        assert result.tds_amount == Decimal("0")
+
+    def test_single_payment_above_threshold_triggers_on_that_payment(self):
+        result = compute_tds(
+            TDSCategory.CONTRACTOR_PAYMENTS,
+            Decimal("35000"),
+            Decimal("20000"),
+        )
+        assert result.threshold_crossed_this_transaction is True
+        assert result.tds_applicable is True
+        assert result.taxable_amount == Decimal("35000")
+        assert result.tds_amount == Decimal("700.00")
+        assert result.single_payment_threshold_triggered is True
+
+        explanation = render_explanation(result, "Acme Contractors")
+        assert "₹30,000.00 single-payment threshold" in explanation
+        assert "₹700.00" in explanation
+
+    def test_annual_threshold_crossing_catches_up_on_full_cumulative_amount(self):
+        result = compute_tds(
+            TDSCategory.CONTRACTOR_PAYMENTS,
+            Decimal("10000"),
+            Decimal("95000"),
+        )
+        assert result.threshold_crossed_this_transaction is True
+        assert result.tds_applicable is True
+        assert result.taxable_amount == Decimal("105000")
+        assert result.tds_amount == Decimal("2100.00")
+        assert result.single_payment_threshold_triggered is False
+
+    def test_payment_after_annual_threshold_is_taxed_even_when_below_single_threshold(self):
+        result = compute_tds(
+            TDSCategory.CONTRACTOR_PAYMENTS,
+            Decimal("5000"),
+            Decimal("105000"),
+        )
+        assert result.threshold_crossed_this_transaction is False
+        assert result.tds_applicable is True
+        assert result.taxable_amount == Decimal("5000")
+        assert result.tds_amount == Decimal("100.00")
+
+
 class TestComputeTdsPropertyPurchase:
-    """Section 393 Table Item 8 — per-transaction threshold ₹50,00,000, rate 1%."""
+    """Exercise property behavior against the configured advisory rule."""
 
     def test_below_per_transaction_threshold_no_tds(self):
         result = compute_tds(TDSCategory.PROPERTY_PURCHASE, Decimal("4000000"))
@@ -99,6 +176,11 @@ class TestComputeTdsPropertyPurchase:
         assert result.tds_applicable is True
         assert result.taxable_amount == Decimal("6000000")
         assert result.tds_amount == Decimal("60000.00")
+
+    def test_at_threshold_triggers_tds(self):
+        result = compute_tds(TDSCategory.PROPERTY_PURCHASE, Decimal("5000000"))
+        assert result.tds_applicable is True
+        assert result.tds_amount == Decimal("50000.00")
 
     def test_cumulative_history_is_irrelevant_for_per_transaction_basis(self):
         # Even with prior cumulative payments, per-transaction basis only looks at this payment.
@@ -115,6 +197,34 @@ class TestComputeTdsNonResident:
         assert result.threshold_crossed_this_transaction is True
         assert result.taxable_amount == Decimal("1")
 
+    def test_missing_pan_uses_higher_of_twenty_percent_or_rule_rate(self):
+        result = compute_tds(
+            TDSCategory.PROFESSIONAL_FEES,
+            Decimal("40000"),
+            pan_provided=False,
+        )
+        assert result.tds_applicable is True
+        assert result.pan_not_provided is True
+        assert result.rate_percent == Decimal("20")
+        assert result.tds_amount == Decimal("8000.00")
+        assert "PAN was not furnished" in render_explanation(result, "Consultant")
+
+    def test_missing_pan_does_not_reduce_rule_rate_above_twenty_percent(self):
+        result = compute_tds(
+            TDSCategory.LOTTERY_WINNINGS,
+            Decimal("20000"),
+            pan_provided=False,
+        )
+        assert result.rate_percent == Decimal("30")
+
+    def test_unknown_pan_status_preserves_scheduled_rate(self):
+        result = compute_tds(
+            TDSCategory.PROFESSIONAL_FEES,
+            Decimal("40000"),
+        )
+        assert result.rate_percent == Decimal("10")
+        assert result.pan_not_provided is False
+
 
 class TestComputeTdsUnclassified:
     def test_unclassified_category_never_applies_tds(self):
@@ -122,3 +232,20 @@ class TestComputeTdsUnclassified:
         assert result.rule is None
         assert result.tds_applicable is False
         assert result.tds_amount == Decimal("0")
+
+
+@pytest.mark.parametrize("amount", [Decimal("0"), Decimal("-1"), Decimal("NaN"), Decimal("Infinity")])
+def test_compute_tds_rejects_non_positive_or_non_finite_transaction_amounts(amount):
+    with pytest.raises(ValueError, match="finite and greater than zero"):
+        compute_tds(TDSCategory.RENT, amount)
+
+
+@pytest.mark.parametrize("cumulative", [Decimal("-1"), Decimal("NaN"), Decimal("Infinity")])
+def test_compute_tds_rejects_invalid_cumulative_amount(cumulative):
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        compute_tds(TDSCategory.RENT, Decimal("1"), cumulative)
+
+
+def test_compute_tds_rejects_float_amounts():
+    with pytest.raises(TypeError, match="must be Decimal"):
+        compute_tds(TDSCategory.RENT, 1.0)

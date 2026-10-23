@@ -27,6 +27,9 @@ class TestComputeTaxLiability:
     def test_old_regime_fully_rebated_at_5_lakh(self):
         assert compute_tax_liability(Decimal("500000"), TaxRegime.OLD) == Decimal("0")
 
+    def test_old_regime_does_not_receive_marginal_relief_above_rebate_limit(self):
+        assert compute_tax_liability(Decimal("500001"), TaxRegime.OLD) == Decimal("13000.21")
+
     def test_zero_income_has_zero_tax_under_both_regimes(self):
         assert compute_tax_liability(Decimal("0"), TaxRegime.NEW) == Decimal("0")
         assert compute_tax_liability(Decimal("0"), TaxRegime.OLD) == Decimal("0")

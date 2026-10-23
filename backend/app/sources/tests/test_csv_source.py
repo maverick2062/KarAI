@@ -22,6 +22,28 @@ class TestCSVTransactionSource:
         assert transactions[0].transaction_date == date(2026, 5, 10)
         assert transactions[0].amount == Decimal("35000")
         assert transactions[0].party_name == "Acme Consulting"
+        assert transactions[0].party_pan_provided is None
+
+    def test_parses_pan_and_explicit_missing_pan_from_optional_column(self):
+        with_pan = CSVTransactionSource(
+            b"transaction_date,amount,party_name,party_pan\n2026-05-10,35000,Acme,abcde1234f\n"
+        ).fetch()[0]
+        no_pan = CSVTransactionSource(
+            b"transaction_date,amount,party_name,party_pan\n2026-05-10,35000,Acme,\n"
+        ).fetch()[0]
+
+        assert with_pan.party_pan == "ABCDE1234F"
+        assert with_pan.party_pan_provided is True
+        assert no_pan.party_pan is None
+        assert no_pan.party_pan_provided is False
+
+    def test_rejects_invalid_pan_format(self):
+        csv_bytes = (
+            b"transaction_date,amount,party_name,party_pan\n"
+            b"2026-05-10,35000,Acme,not-a-pan\n"
+        )
+        with pytest.raises(TransactionSourceError, match="Invalid PAN"):
+            CSVTransactionSource(csv_bytes).fetch()
 
     def test_handles_comma_and_rupee_symbol_in_amount(self):
         csv_bytes = b"transaction_date,amount,party_name\n2026-06-01,\"1,20,000\",Landlord\n"
@@ -47,6 +69,14 @@ class TestCSVTransactionSource:
     def test_unparseable_amount_raises(self):
         csv_bytes = b"transaction_date,amount,party_name\n2026-05-10,not-a-number,Vendor\n"
         with pytest.raises(TransactionSourceError, match="Unrecognized amount"):
+            CSVTransactionSource(csv_bytes).fetch()
+
+    @pytest.mark.parametrize("amount", ["0", "-1", "NaN", "Infinity"])
+    def test_rejects_non_positive_or_non_finite_amount(self, amount):
+        csv_bytes = (
+            f"transaction_date,amount,party_name\n2026-05-10,{amount},Vendor\n".encode()
+        )
+        with pytest.raises(TransactionSourceError, match="row 1.*finite and greater than zero"):
             CSVTransactionSource(csv_bytes).fetch()
 
 

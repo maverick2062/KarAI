@@ -15,6 +15,7 @@ class TDSEventRow:
     category: str
     amount: Decimal
     tds_applicable: bool
+    pan_not_provided: bool
     tds_amount: Decimal
     rate_percent: Decimal
     explanation: str

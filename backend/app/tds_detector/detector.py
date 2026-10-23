@@ -50,6 +50,9 @@ def ingest_transactions(
         )
         if raw.party_pan:
             vendor.pan = raw.party_pan
+        pan_provided = raw.party_pan_provided
+        if pan_provided is None:
+            pan_provided = bool(vendor.pan)
 
         financial_year = current_financial_year(datetime.combine(raw.transaction_date, time()))
 
@@ -73,7 +76,7 @@ def ingest_transactions(
             payee_is_non_resident=raw.party_is_non_resident,
         )
         cumulative_before = get_cumulative_before(db, user_id, vendor.id, category, financial_year)
-        result = compute_tds(category, raw.amount, cumulative_before)
+        result = compute_tds(category, raw.amount, cumulative_before, pan_provided=pan_provided)
 
         explanation = render_explanation(result, vendor.name)
 
@@ -84,11 +87,12 @@ def ingest_transactions(
             rule_table_version=result.rule_table_version,
             threshold_crossed_this_transaction=result.threshold_crossed_this_transaction,
             tds_applicable=result.tds_applicable,
+            pan_not_provided=result.pan_not_provided,
             cumulative_before=result.cumulative_before,
             cumulative_after=result.cumulative_after,
             taxable_amount=result.taxable_amount,
             tds_amount=result.tds_amount,
-            rate_percent=result.rule.rate_percent if result.rule else 0,
+            rate_percent=result.rate_percent,
             explanation_text=explanation,
             filing_form_reference=FORM_REFERENCE_BY_CATEGORY.get(category) if result.tds_applicable else None,
             filing_deadline=next_deposit_deadline(raw.transaction_date) if result.tds_applicable else None,

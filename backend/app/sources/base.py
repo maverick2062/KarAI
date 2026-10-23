@@ -11,6 +11,18 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+import re
+
+
+PAN_PATTERN = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+
+
+def normalize_pan(value: str) -> str:
+    """Normalize a PAN and reject values that do not match its basic format."""
+    pan = value.strip().upper()
+    if not PAN_PATTERN.fullmatch(pan):
+        raise ValueError("PAN must be 10 characters in the format AAAAA9999A.")
+    return pan
 
 
 @dataclass(frozen=True)
@@ -24,6 +36,7 @@ class RawTransaction:
     party_pan: str | None = None
     party_is_non_resident: bool = False
     external_ref: str | None = None
+    party_pan_provided: bool | None = None
 
 
 class TransactionSource(ABC):

@@ -1,9 +1,10 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.transaction import TransactionSourceType
+from app.sources.base import normalize_pan
 
 
 class ManualTransactionEntry(BaseModel):
@@ -13,8 +14,28 @@ class ManualTransactionEntry(BaseModel):
     description: str = ""
     declared_category: str | None = None
     party_gstin: str | None = None
+    party_pan: str | None = None
+    party_pan_provided: bool | None = None
     party_is_non_resident: bool = False
     external_ref: str | None = None
+
+    @field_validator("party_pan")
+    @classmethod
+    def validate_party_pan(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        try:
+            return normalize_pan(value)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @model_validator(mode="after")
+    def infer_pan_provided(self):
+        if self.party_pan:
+            if self.party_pan_provided is False:
+                raise ValueError("A PAN cannot be supplied when party_pan_provided is false.")
+            self.party_pan_provided = True
+        return self
 
 
 class ManualIngestionRequest(BaseModel):
@@ -31,6 +52,7 @@ class TDSEventSummary(BaseModel):
     category: str
     tds_applicable: bool
     threshold_crossed_this_transaction: bool
+    pan_not_provided: bool
     cumulative_before: Decimal
     cumulative_after: Decimal
     taxable_amount: Decimal

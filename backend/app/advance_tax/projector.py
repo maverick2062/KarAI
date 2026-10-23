@@ -60,10 +60,9 @@ def compute_tax_liability(total_income: Decimal, regime: TaxRegime) -> Decimal:
     if total_income <= rebate_limit:
         rebate = min(base_tax, max_rebate)
         base_tax -= rebate
-    else:
+    elif regime == TaxRegime.NEW:
         # Marginal relief: just above the rebate cliff, tax payable is capped
-        # at (income - rebate_limit) so a ₹1 income increase can't create a
-        # tax bill larger than that ₹1 (the classic 87A "cliff" problem).
+        # at (income - rebate_limit) under the new regime.
         marginal_cap = total_income - rebate_limit
         if base_tax > marginal_cap:
             base_tax = marginal_cap

@@ -3,7 +3,7 @@ import io
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from app.sources.base import RawTransaction, TransactionSource, TransactionSourceError
+from app.sources.base import RawTransaction, TransactionSource, TransactionSourceError, normalize_pan
 
 MAX_ROWS = 500_000
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB, per FR-07
@@ -25,9 +25,12 @@ def _parse_date(value: str):
 def _parse_amount(value: str) -> Decimal:
     cleaned = value.strip().replace(",", "").replace("₹", "")
     try:
-        return Decimal(cleaned)
+        amount = Decimal(cleaned)
     except InvalidOperation as exc:
         raise TransactionSourceError(f"Unrecognized amount: {value!r}") from exc
+    if not amount.is_finite() or amount <= 0:
+        raise TransactionSourceError("Amount must be finite and greater than zero.")
+    return amount
 
 
 class CSVTransactionSource(TransactionSource):
@@ -76,14 +79,29 @@ class CSVTransactionSource(TransactionSource):
             def get(field: str, default: str = "") -> str:
                 return (row.get(self._resolve_column(field)) or default).strip()
 
+            pan = get("party_pan") or None
+            try:
+                normalized_pan = normalize_pan(pan) if pan else None
+            except ValueError as exc:
+                raise TransactionSourceError(f"Invalid PAN on CSV row {row_index}: {exc}") from exc
+
+            try:
+                amount = _parse_amount(get("amount"))
+            except TransactionSourceError as exc:
+                raise TransactionSourceError(f"Invalid amount on CSV row {row_index}: {exc}") from exc
+
             transactions.append(
                 RawTransaction(
                     transaction_date=_parse_date(get("transaction_date")),
-                    amount=_parse_amount(get("amount")),
+                    amount=amount,
                     party_name=get("party_name") or "Unknown",
                     description=get("description"),
                     declared_category=get("declared_category") or None,
                     party_gstin=get("party_gstin") or None,
+                    party_pan=normalized_pan,
+                    party_pan_provided=(
+                        normalized_pan is not None if "party_pan" in reader.fieldnames else None
+                    ),
                     external_ref=get("external_ref") or None,
                 )
             )

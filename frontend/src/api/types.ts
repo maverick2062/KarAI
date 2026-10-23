@@ -20,6 +20,7 @@ export interface TDSEventSummary {
   category: string;
   tds_applicable: boolean;
   threshold_crossed_this_transaction: boolean;
+  pan_not_provided: boolean;
   cumulative_before: string;
   cumulative_after: string;
   taxable_amount: string;

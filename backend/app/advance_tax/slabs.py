@@ -17,7 +17,7 @@ marginal relief), and non-resident-specific slabs.
 from dataclasses import dataclass
 from decimal import Decimal
 
-SLAB_VERSION = "FY2026-27-v1-UNVERIFIED"
+SLAB_VERSION = "FY2026-27-v1-advisory"
 
 SLAB_DISCLAIMER = (
     "AI-assisted, advisory only. Tax slabs mirror the last publicly known "
