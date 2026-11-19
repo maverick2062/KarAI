@@ -21,8 +21,8 @@ export function NavBar() {
 
   return (
     <header className="nav-bar">
-      <div className="nav-bar__brand">KarAI</div>
-      <nav className="nav-bar__links">
+      <div className="nav-bar__brand" data-tour="nav-brand">KarAI</div>
+      <nav className="nav-bar__links" data-tour="nav-links">
         {links.map((link) => (
           <NavLink
             key={link.to}
@@ -34,6 +34,14 @@ export function NavBar() {
         ))}
       </nav>
       <div className="nav-bar__user">
+        <button
+          type="button"
+          className="button button--secondary nav-bar__help"
+          onClick={() => window.dispatchEvent(new Event("start-karai-tour"))}
+          aria-label="Start the KarAI tutorial"
+        >
+          Help
+        </button>
         <span>{user?.full_name}</span>
         <button className="button button--ghost" onClick={handleLogout}>
           Log out

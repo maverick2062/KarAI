@@ -9,10 +9,12 @@ from app.explainability.templates import FORM_REFERENCE_BY_CATEGORY, next_deposi
 from app.models.common import current_financial_year
 from app.models.tds_event import TDSEvent
 from app.models.transaction import Transaction, TransactionSourceType
+from app.models.transaction_search_term import TransactionSearchTerm
 from app.rule_engine.evaluate import classify_category, compute_tds
 from app.rule_engine.section_393 import RULE_TABLE_VERSION
 from app.sources.base import RawTransaction
 from app.tds_detector.tracker import get_cumulative_before, get_or_create_vendor
+from app.transaction_search import searchable_tokens, search_term_hash
 
 
 @dataclass
@@ -74,6 +76,20 @@ def ingest_transactions(
         )
         db.add(transaction)
         db.flush()
+        search_values = {raw.description, vendor.name}
+        search_terms = {
+            search_term_hash(user_id, token)
+            for value in search_values
+            for token in searchable_tokens(value)
+        }
+        db.add_all(
+            TransactionSearchTerm(
+                user_id=user_id,
+                transaction_id=transaction.id,
+                term_hash=term_hash,
+            )
+            for term_hash in search_terms
+        )
 
         category = classify_category(
             description=raw.description,

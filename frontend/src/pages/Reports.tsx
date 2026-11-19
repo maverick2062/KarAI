@@ -56,7 +56,7 @@ export function Reports() {
 
       {error && <div className="alert alert--error">{error}</div>}
 
-      <div className="card">
+      <div className="card" data-tour="reports-generate">
         <h2>Generate a compliance report — FY {financialYear}</h2>
         <div className="button-row">
           <button className="button button--primary" onClick={() => handleGenerate("pdf")} disabled={isGenerating}>

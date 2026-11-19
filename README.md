@@ -4,24 +4,26 @@ KarAI is a prototype for exploring Tax Deducted at Source (TDS) event detection,
 calculation explanations, advance-tax projections, and Annual Information Statement (AIS)
 discrepancy checks for Indian individuals and freelancers.
 
-**This is a working prototype, not a certified filing tool.** Every calculation carries an
-"AI-assisted, advisory only" disclaimer. Verify with a Chartered Accountant or the current CBDT
-notification before filing or making a payment decision on the basis of anything this app shows.
+**This is an advisory prototype, not a certified filing tool.** The TDS rules and tax slabs are
+incomplete and have not been verified against current law. Advance-tax interest is a rough estimate
+based on a single total paid amount, not dated payments. Demo transactions and AIS comparisons are
+simulated. Verify with a Chartered Accountant before filing or making a payment decision.
 
 ## What's real vs. what's stubbed
 
-The product flows are implemented and tested as prototype behavior:
+The product flows are implemented as prototype behavior:
 
 | Capability | Status |
 |---|---|
 | Section 393 TDS rule engine (advisory thresholds/rates, per-payee-per-FY tracking) | **Prototype**, unit-tested; not a complete or verified implementation of current law |
 | TDS event detection from a transaction stream | **Real**, unit-tested |
 | Plain-language explanation of every computation | **Real** |
-| Advance-tax quarterly projection + old/new regime comparator + 234B/234C interest | **Real**, unit-tested |
-| AIS-mirror discrepancy detection | **Real**, unit-tested |
+| Advance-tax projection + old/new regime comparator + 234B/234C interest | **Prototype estimate**; payment dates are not modeled and tax assumptions are not legally verified |
+| AIS-mirror discrepancy detection | **Simulated comparison**, implemented against generated AIS data |
 | PDF / Excel audit report generation | **Real** |
 | Auth, row-level data isolation, rate limiting, field encryption | **Real**, tested |
 | CSV upload / manual entry / synthetic demo feed | **Real** |
+| First-visit tutorial, Help replay, ingestion notifications, and result scrolling | **Implemented in the frontend** |
 | **Live bank/UPI feed** (RBI Account Aggregator) | **Stubbed** — needs an AA partnership (Finvu/OneMoney/Perfios); see `app/sources/account_aggregator_stub.py` for the exact integration spec |
 | **Auto e-filing** (ERI) | **Stubbed** — needs e-Return Intermediary registration with the Income Tax Dept; see `app/filing/` |
 | **Real AIS pull** (IT portal OAuth) | **Stubbed** — see `app/ais_mock/oauth_stub.py` for the integration spec |
@@ -35,6 +37,27 @@ include an optional `party_pan` column. A blank value in that column means PAN w
 while omitting the column means PAN status is unknown. Supplied PANs are format-checked, not
 verified against a government database. Where PAN is explicitly recorded as not furnished, the
 TDS engine uses the higher of 20% or the scheduled rule rate and labels the event.
+
+Manual entries now collect rule-specific facts when they are relevant (for example designated-
+payer status for contractor payments and the property stamp-duty value). Property installments
+remain **Needs review** because their valuation/allocation is not modeled; numeric results are
+limited to a confirmed full-consideration payment. Mark nonresident payees using the manual-entry
+field or optional CSV `party_is_non_resident` column (`true`/`false`, `yes`/`no`, or `1`/`0`).
+Those payments route to manual review rather than applying a resident rate. CSV files can provide
+the same optional facts in a `rule_context` column containing a JSON object with the corresponding
+field names. For example:
+
+```csv
+transaction_date,amount,party_name,declared_category,rule_context
+2026-05-10,35000,Acme,contractor_payments,"{""payer_is_designated_person"":true,""payee_is_individual_or_huf"":true}"
+```
+
+If a rule needs facts KarAI does not have or a legal branch has not been implemented, the event is
+marked **Needs review** and no rate or deduction amount is returned. This is deliberately different
+from a “No TDS” decision. The TDS events page and audit reports show these unresolved cases.
+The current engine resolves cash lottery/game-show winnings and VDA thresholds when the required
+transaction and payer facts are supplied. It still does not calculate rent, interest, online-game
+or in-kind prizes, or nonresident treaty cases; those remain **Needs review**.
 
 ## Architecture
 
@@ -165,19 +188,26 @@ API integration behavior. Run the command above for the current test and coverag
 2. Go to **Transactions** → **Simulate bank feed**. This generates a year of realistic recurring
    payments to a handful of vendors.
 3. Go to **TDS Events** — see which payments crossed a Section 393 threshold, with a
-   plain-language explanation and filing deadline for each.
-4. Go to **Advance Tax** — enter an income estimate, compare old vs. new regime, see the
+   plain-language explanation and filing deadline for each. Search by description/payee prefix or
+   exact amount, filter by TDS status, and page through results.
+4. In **Transactions**, Recent Transactions includes only uploaded and manually entered records.
+   Mark an applicable TDS event as paid or remove an entry; each action can be undone for one
+   minute. Simulated bank-feed rows remain reference-only and can be removed as a group from the
+   Dashboard.
+5. Go to **Advance Tax** — enter an income estimate, compare old vs. new regime, see the
    quarterly installment schedule.
-5. Go to **Dashboard** → **Check against AIS** — see a simulated AIS-mismatch check.
-6. Go to **Reports** → generate and download a PDF or Excel audit report.
-7. Go to **Settings** to delete your account and all associated data at any time.
+6. Go to **Dashboard** → **Check against AIS** — see a simulated AIS-mismatch check.
+7. Go to **Reports** → generate and download a PDF or Excel audit report.
+8. Go to **Settings** to delete your account and all associated data at any time.
 
 ## Known limitations / honest gaps
 
 - **Tax slabs and Section 393 rules are advisory and not a complete or current-law-verified
-  implementation.** In particular, the TDS engine does not yet model all payer/payee categories,
-  monthly rent periods, asset-specific rates, property stamp-duty valuation, or conditional
-  threshold exceptions (including dividend and VDA cases). Do not rely on its results to decide withholding.
+  implementation.** The engine supports selected payer/payee and exception facts, but does not
+  model monthly rent periods, interest payer/payee branches, online-game or in-kind winnings, or
+  nonresident treaty calculations. Property calculations are limited to a confirmed full-
+  consideration payment with entered valuation facts. Unknown or unsupported cases return
+  **Needs review** without a calculated amount. Do not rely on the prototype to decide withholding.
   Have a Chartered Accountant validate the applicable law and taxpayer facts before changing rule
   values or using them for compliance. `RULE_TABLE_VERSION` / `SLAB_VERSION` identify the
   calculation versions; they do not imply legal verification.

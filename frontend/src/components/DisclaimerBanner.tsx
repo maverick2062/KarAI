@@ -1,9 +1,10 @@
 export function DisclaimerBanner() {
   return (
     <div className="disclaimer-banner" role="note">
-      <strong>AI-assisted, advisory only.</strong> Calculations are based on Section 393 (Income Tax Act 2025)
-      and may not reflect the latest CBDT notification. Verify with a Chartered Accountant before filing or
-      making a payment decision. Final filing responsibility rests with you.
+      <strong>Advisory prototype only.</strong> TDS rules and tax slabs are incomplete and are not verified
+      against current law. Advance-tax interest is a rough estimate based on a single total paid amount, not
+      dated payments. Demo transactions and AIS comparisons are simulated. Verify with a Chartered Accountant
+      before filing or making a payment decision.
     </div>
   );
 }

@@ -39,7 +39,7 @@ export function AdvanceTaxPlanner() {
       <h1>Advance Tax Planner — FY {financialYear}</h1>
 
       <div className="card">
-        <form className="planner-form" onSubmit={handleCompare}>
+        <form className="planner-form" data-tour="planner-form" onSubmit={handleCompare}>
           <label>
             Estimated total income this year (₹)
             <input

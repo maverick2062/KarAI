@@ -1,8 +1,12 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
+from pydantic import ValidationError
+
 from app.advance_tax.projector import compare_regimes, compute_tax_liability, project_advance_tax
 from app.models.advance_tax import TaxRegime
+from app.schemas.advance_tax import EstimateRequest
 
 
 class TestComputeTaxLiability:
@@ -45,6 +49,37 @@ class TestCompareRegimes:
 
 
 class TestProjectAdvanceTax:
+    @pytest.mark.parametrize("financial_year", ["FY26", "2026", "2026-7", "2026-28", "0000-01"])
+    def test_estimate_request_rejects_malformed_financial_year(self, financial_year):
+        with pytest.raises(ValidationError):
+            EstimateRequest(
+                financial_year=financial_year,
+                total_income_estimate=Decimal("100000"),
+                regime=TaxRegime.NEW,
+            )
+
+    @pytest.mark.parametrize(
+        ("total_income_estimate", "paid_so_far"),
+        [
+            (Decimal("-1"), Decimal("0")),
+            (Decimal("NaN"), Decimal("0")),
+            (Decimal("1000"), Decimal("-1")),
+            (Decimal("1000"), Decimal("Infinity")),
+        ],
+    )
+    def test_estimate_request_rejects_invalid_money_values(self, total_income_estimate, paid_so_far):
+        with pytest.raises(ValidationError):
+            EstimateRequest(
+                financial_year="2026-27",
+                total_income_estimate=total_income_estimate,
+                regime=TaxRegime.NEW,
+                paid_so_far=paid_so_far,
+            )
+
+    def test_projector_rejects_malformed_financial_year_even_when_liability_is_below_threshold(self):
+        with pytest.raises(ValueError, match="Financial year"):
+            project_advance_tax("FY26", Decimal("100"), TaxRegime.NEW)
+
     def test_below_liability_threshold_does_not_require_advance_tax(self):
         projection = project_advance_tax("2026-27", Decimal("800000"), TaxRegime.NEW)
         assert projection.advance_tax_required is False

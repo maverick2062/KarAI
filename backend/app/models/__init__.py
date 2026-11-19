@@ -9,6 +9,7 @@ from app.models.report import Report, ReportType
 from app.models.revoked_token import RevokedToken
 from app.models.tds_event import TDSEvent
 from app.models.transaction import Transaction, TransactionSourceType
+from app.models.transaction_search_term import TransactionSearchTerm
 from app.models.user import User, UserRole
 from app.models.vendor import Vendor
 
@@ -24,6 +25,7 @@ __all__ = [
     "TDSEvent",
     "Transaction",
     "TransactionSourceType",
+    "TransactionSearchTerm",
     "User",
     "UserRole",
     "Vendor",

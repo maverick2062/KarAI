@@ -9,6 +9,7 @@ export function Register() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -55,13 +56,25 @@ export function Register() {
         </label>
         <label>
           Password
-          <input
-            type="password"
-            required
-            minLength={8}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <div className="password-field">
+            <input
+              type={showPassword ? "text" : "password"}
+              required
+              minLength={8}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              aria-label="Password"
+            />
+            <button
+              type="button"
+              className="password-field__toggle"
+              onClick={() => setShowPassword((visible) => !visible)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
           <span className="field-hint">At least 8 characters, with a letter and a digit.</span>
         </label>
 

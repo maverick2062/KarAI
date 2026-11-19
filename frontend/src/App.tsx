@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { NavBar } from "./components/NavBar";
+import { GuidedTour } from "./components/GuidedTour";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { Dashboard } from "./pages/Dashboard";
@@ -88,6 +89,7 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
+      <GuidedTour />
     </AuthProvider>
   );
 }

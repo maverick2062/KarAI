@@ -8,6 +8,7 @@ export function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -43,7 +44,24 @@ export function Login() {
         </label>
         <label>
           Password
-          <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+          <div className="password-field">
+            <input
+              type={showPassword ? "text" : "password"}
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              aria-label="Password"
+            />
+            <button
+              type="button"
+              className="password-field__toggle"
+              onClick={() => setShowPassword((visible) => !visible)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
         </label>
 
         <button className="button button--primary" type="submit" disabled={isSubmitting}>
