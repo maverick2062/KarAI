@@ -10,7 +10,7 @@ from app.db import get_db
 from app.models.advance_tax import AdvanceTaxEstimate
 from app.models.report import Report, ReportType
 from app.models.tds_event import TDSEvent
-from app.models.transaction import Transaction
+from app.models.transaction import Transaction, TransactionSourceType
 from app.models.user import User
 from app.reports.excel_report import generate_excel_report
 from app.reports.pdf_report import generate_pdf_report
@@ -26,7 +26,14 @@ def _build_report_input(db: Session, user: User, financial_year: str) -> ReportI
     rows = (
         db.query(TDSEvent, Transaction)
         .join(Transaction, TDSEvent.transaction_id == Transaction.id)
-        .filter(TDSEvent.user_id == user.id, Transaction.financial_year == financial_year)
+        .filter(
+            TDSEvent.user_id == user.id,
+            Transaction.financial_year == financial_year,
+            Transaction.is_deleted.is_(False),
+            Transaction.source_type.in_(
+                [TransactionSourceType.MANUAL_ENTRY, TransactionSourceType.CSV_UPLOAD]
+            ),
+        )
         .order_by(Transaction.transaction_date.asc())
         .all()
     )

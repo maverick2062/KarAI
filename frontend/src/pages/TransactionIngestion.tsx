@@ -3,7 +3,9 @@ import { TransactionsApi } from "../api/endpoints";
 import type { IngestionResponse, TransactionOut } from "../api/types";
 import { ApiError } from "../api/client";
 import { DisclaimerBanner } from "../components/DisclaimerBanner";
+import { useTransactionUndo } from "../components/TransactionUndo";
 import { formatCurrency } from "../utils/financialYear";
+import { playNotificationSound } from "../utils/sound";
 
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return typeof err.detail === "string" ? err.detail : "Request failed.";
@@ -29,9 +31,10 @@ export function TransactionIngestion() {
   const [transactionsSearchInput, setTransactionsSearchInput] = useState("");
   const [transactionsSearch, setTransactionsSearch] = useState("");
   const [transactionsOffset, setTransactionsOffset] = useState(0);
-  const [undoAction, setUndoAction] = useState<{ transactionId: string; action: "delete" | "complete"; expiresAt: number } | null>(null);
+  const [transactionRefreshKey, setTransactionRefreshKey] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const { undoAction, isUndoing, startUndo } = useTransactionUndo();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const resultHeadingRef = useRef<HTMLHeadingElement>(null);
 
@@ -98,73 +101,15 @@ export function TransactionIngestion() {
         if (!(err instanceof DOMException && err.name === "AbortError")) setError(errorMessage(err));
       });
     return () => controller.abort();
-  }, [result, transactionsOffset, transactionsSearch]);
+  }, [result, transactionRefreshKey, transactionsOffset, transactionsSearch]);
 
   useEffect(() => {
-    if (!undoAction) return;
-    const remaining = undoAction.expiresAt - Date.now();
-    if (remaining <= 0) {
-      setUndoAction(null);
-      return;
+    function handleTransactionsUpdated() {
+      setTransactionRefreshKey((key) => key + 1);
     }
-    const timeout = window.setTimeout(() => setUndoAction(null), remaining);
-    return () => window.clearTimeout(timeout);
-  }, [undoAction]);
-
-  function prepareNotificationSound() {
-    if (!window.AudioContext || audioContextRef.current) return;
-
-    let context: AudioContext;
-    try {
-      context = new window.AudioContext();
-    } catch (error) {
-      console.warn("Could not initialize the transaction notification sound.", error);
-      return;
-    }
-
-    audioContextRef.current = context;
-    void context.resume().catch((error: unknown) => {
-      if (audioContextRef.current === context) {
-        console.warn("The browser blocked the transaction notification sound.", error);
-        audioContextRef.current = null;
-        void context.close();
-      }
-    });
-  }
-
-  function playNotificationSound() {
-    const context = audioContextRef.current;
-    if (!context) return;
-    if (context.state !== "running") {
-      console.warn("The transaction notification sound was unavailable; the visual notification is still shown.");
-      stopNotificationSound();
-      return;
-    }
-
-    const now = context.currentTime;
-    for (const [frequency, startAt] of [[587.33, 0], [880, 0.09]] as const) {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(frequency, now + startAt);
-      gain.gain.setValueAtTime(0.14, now + startAt);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + startAt + 0.35);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(now + startAt);
-      oscillator.stop(now + startAt + 0.35);
-    }
-    audioContextRef.current = null;
-    window.setTimeout(() => {
-      void context.close();
-    }, 500);
-  }
-
-  function stopNotificationSound() {
-    const context = audioContextRef.current;
-    audioContextRef.current = null;
-    if (context && context.state !== "closed") void context.close();
-  }
+    window.addEventListener("karai-transactions-updated", handleTransactionsUpdated);
+    return () => window.removeEventListener("karai-transactions-updated", handleTransactionsUpdated);
+  }, []);
 
   function resetManualEntry() {
     setManualEntry({
@@ -194,36 +139,39 @@ export function TransactionIngestion() {
     });
   }
 
-  async function undoLastAction() {
-    if (!undoAction) return;
-    if (Date.now() > undoAction.expiresAt) {
-      setUndoAction(null);
-      return;
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const allVisibleSelected =
+    transactions.length > 0 && transactions.every((t) => selectedIds.has(t.id));
+
+  function toggleSelectAll() {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(transactions.map((t) => t.id)));
     }
-    try {
-      if (undoAction.action === "delete") {
-        await TransactionsApi.restore(undoAction.transactionId);
-      } else {
-        await TransactionsApi.reopen(undoAction.transactionId);
-      }
-      setUndoAction(null);
-      const response = await TransactionsApi.list({
-        recentOnly: true,
-        search: transactionsSearch || undefined,
-        limit: 10,
-        offset: transactionsOffset,
-      });
-      setTransactions(response.items);
-      setTransactionsTotal(response.total);
-    } catch (err) {
-      setError(errorMessage(err));
-    }
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set());
   }
 
   async function completeTransaction(transactionId: string) {
     try {
       await TransactionsApi.complete(transactionId);
-      setUndoAction({ transactionId, action: "complete", expiresAt: Date.now() + 60000 });
+      startUndo(transactionId, "complete");
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(transactionId);
+        return next;
+      });
       const response = await TransactionsApi.list({
         recentOnly: true,
         search: transactionsSearch || undefined,
@@ -234,13 +182,19 @@ export function TransactionIngestion() {
       setTransactionsTotal(response.total);
     } catch (err) {
       setError(errorMessage(err));
+      playNotificationSound();
     }
   }
 
   async function deleteTransaction(transactionId: string) {
     try {
       await TransactionsApi.delete(transactionId);
-      setUndoAction({ transactionId, action: "delete", expiresAt: Date.now() + 60000 });
+      startUndo(transactionId, "delete");
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(transactionId);
+        return next;
+      });
       const response = await TransactionsApi.list({
         recentOnly: true,
         search: transactionsSearch || undefined,
@@ -251,6 +205,53 @@ export function TransactionIngestion() {
       setTransactionsTotal(response.total);
     } catch (err) {
       setError(errorMessage(err));
+      playNotificationSound();
+    }
+  }
+
+  const selectedCompletableTransactions = transactions.filter(
+    (t) => selectedIds.has(t.id) && t.tds_applicable && !t.is_completed
+  );
+
+  async function handleBatchComplete() {
+    const ids = selectedCompletableTransactions.map((t) => t.id);
+    if (ids.length === 0) return;
+    try {
+      await TransactionsApi.batchComplete(ids);
+      startUndo(ids, "complete");
+      setSelectedIds(new Set());
+      const response = await TransactionsApi.list({
+        recentOnly: true,
+        search: transactionsSearch || undefined,
+        limit: 10,
+        offset: transactionsOffset,
+      });
+      setTransactions(response.items);
+      setTransactionsTotal(response.total);
+    } catch (err) {
+      setError(errorMessage(err));
+      playNotificationSound();
+    }
+  }
+
+  async function handleBatchDelete() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    try {
+      await TransactionsApi.batchDelete(ids);
+      startUndo(ids, "delete");
+      setSelectedIds(new Set());
+      const response = await TransactionsApi.list({
+        recentOnly: true,
+        search: transactionsSearch || undefined,
+        limit: 10,
+        offset: transactionsOffset,
+      });
+      setTransactions(response.items);
+      setTransactionsTotal(response.total);
+    } catch (err) {
+      setError(errorMessage(err));
+      playNotificationSound();
     }
   }
 
@@ -281,7 +282,6 @@ export function TransactionIngestion() {
 
   async function handleCsvUpload() {
     if (!stagedFile) return;
-    prepareNotificationSound();
     setError(null);
     setIsBusy(true);
     setUploadProgress(0);
@@ -294,8 +294,8 @@ export function TransactionIngestion() {
       setStagedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err) {
-      stopNotificationSound();
       setError(errorMessage(err));
+      playNotificationSound();
     } finally {
       setIsBusy(false);
     }
@@ -309,15 +309,14 @@ export function TransactionIngestion() {
   }
 
   async function handleSimulate() {
-    prepareNotificationSound();
     setError(null);
     setIsBusy(true);
     try {
       const response = await TransactionsApi.simulate(42);
       showIngestionNotification(response);
     } catch (err) {
-      stopNotificationSound();
       setError(errorMessage(err));
+      playNotificationSound();
     } finally {
       setIsBusy(false);
     }
@@ -325,7 +324,6 @@ export function TransactionIngestion() {
 
   async function handleManualSubmit(event: FormEvent) {
     event.preventDefault();
-    prepareNotificationSound();
     setError(null);
     setIsBusy(true);
     try {
@@ -359,34 +357,10 @@ export function TransactionIngestion() {
             : manualEntry.party_pan_provided === "yes",
       }]);
       showIngestionNotification(response);
-      setManualEntry({
-        ...manualEntry,
-        amount: "",
-        party_name: "",
-        description: "",
-        declared_category: "",
-        party_pan: "",
-        party_pan_provided: "unknown",
-        party_is_non_resident: "",
-        payer_is_specified_person: "",
-        payer_is_designated_person: "",
-        payee_is_individual_or_huf: "",
-        service_kind: "",
-        property_stamp_duty_value: "",
-        property_consideration_total: "",
-        property_payment_is_full_consideration: false,
-        payee_is_individual_shareholder: "",
-        dividend_payment_is_non_cash: "",
-        lottery_winnings_kind: "",
-        lottery_winnings_are_cash: "",
-        vda_payer_is_individual_or_huf: "",
-        vda_payer_turnover_within_limit: "",
-        vda_payer_has_business_income: "",
-        vda_consideration_is_cash: "",
-      });
+      resetManualEntry();
     } catch (err) {
-      stopNotificationSound();
       setError(errorMessage(err));
+      playNotificationSound();
     } finally {
       setIsBusy(false);
     }
@@ -764,18 +738,6 @@ export function TransactionIngestion() {
         </div>
       )}
 
-      {undoAction && (
-        <div className="toast toast--undo" role="status" aria-live="polite">
-          <div className="toast__body">
-            <span>{undoAction.action === "delete" ? "Transaction removed." : "Transaction marked as completed."}</span>
-            <button type="button" className="button button--secondary" onClick={undoLastAction}>
-              Undo
-            </button>
-          </div>
-          <div className="toast__progress toast__progress--undo" aria-hidden="true" />
-        </div>
-      )}
-
       {transactionsTotal > 0 && (
         <div className="card">
           <div className="section-heading">
@@ -793,35 +755,99 @@ export function TransactionIngestion() {
               />
             </label>
           </div>
-          <div className="transaction-actions-list">
-            {transactions.map((transaction) => (
-              <div className={"transaction-action-row" + (transaction.is_completed ? " transaction-action-row--completed" : "")} key={transaction.id}>
-                <div>
-                  <strong>{formatTransactionAmount(transaction.amount)}</strong>
-                  <span>{transaction.description || transaction.party_name || "Transaction"} · {transaction.transaction_date}</span>
-                </div>
-                <div className="transaction-action-row__buttons">
-                  {transaction.tds_applicable && (
-                    <button
-                      type="button"
-                      className="button button--secondary"
-                      onClick={() => completeTransaction(transaction.id)}
-                      disabled={transaction.is_completed || Boolean(undoAction)}
-                    >
-                      {transaction.is_completed ? "TDS paid" : "Mark TDS paid"}
-                    </button>
-                  )}
+          <div className="selection-toolbar">
+            <label className="selection-toolbar__checkbox">
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={toggleSelectAll}
+                aria-label={allVisibleSelected ? "Deselect all transactions" : "Select all transactions"}
+              />
+              <span>{allVisibleSelected ? "Deselect all" : "Select all"}</span>
+            </label>
+            {selectedIds.size > 0 && (
+              <div className="selection-toolbar__actions">
+                <span className="selection-count">{selectedIds.size} selected</span>
+                {selectedCompletableTransactions.length > 0 && (
                   <button
                     type="button"
-                    className="button button--danger"
-                    onClick={() => deleteTransaction(transaction.id)}
-                    disabled={Boolean(undoAction)}
+                    className="button button--secondary button--sm"
+                    onClick={handleBatchComplete}
+                    disabled={Boolean(undoAction) || isUndoing}
                   >
-                    Delete
+                    Mark TDS paid ({selectedCompletableTransactions.length})
                   </button>
-                </div>
+                )}
+                <button
+                  type="button"
+                  className="button button--danger button--sm"
+                  onClick={handleBatchDelete}
+                  disabled={Boolean(undoAction) || isUndoing}
+                >
+                  Delete selected ({selectedIds.size})
+                </button>
+                <button
+                  type="button"
+                  className="button button--ghost button--sm"
+                  onClick={deselectAll}
+                >
+                  Clear
+                </button>
               </div>
-            ))}
+            )}
+          </div>
+
+          <div className="transaction-actions-list">
+            {transactions.map((transaction) => {
+              const isSelected = selectedIds.has(transaction.id);
+              return (
+                <div
+                  className={
+                    "transaction-action-row" +
+                    (transaction.is_completed ? " transaction-action-row--completed" : "") +
+                    (isSelected ? " transaction-action-row--selected" : "")
+                  }
+                  key={transaction.id}
+                >
+                  <div className="transaction-action-row__main">
+                    <label className="transaction-row__checkbox">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(transaction.id)}
+                        aria-label={`Select transaction ${transaction.description || transaction.party_name || ""}`}
+                      />
+                    </label>
+                    <div className="transaction-action-row__details">
+                      <strong>{formatTransactionAmount(transaction.amount)}</strong>
+                      <span>
+                        {transaction.description || transaction.party_name || "Transaction"} · {transaction.transaction_date}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="transaction-action-row__buttons">
+                    {transaction.tds_applicable && (
+                      <button
+                        type="button"
+                        className="button button--secondary"
+                        onClick={() => completeTransaction(transaction.id)}
+                        disabled={transaction.is_completed || Boolean(undoAction) || isUndoing}
+                      >
+                        {transaction.is_completed ? "TDS paid" : "Mark TDS paid"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="button button--danger"
+                      onClick={() => deleteTransaction(transaction.id)}
+                      disabled={Boolean(undoAction) || isUndoing}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <div className="button-row pagination-controls">
             <button

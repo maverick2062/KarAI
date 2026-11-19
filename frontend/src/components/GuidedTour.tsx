@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
 import { TOUR_STEPS } from "../tour/tourSteps";
 
 interface TargetRect {
@@ -14,15 +15,10 @@ interface TooltipPosition {
   left: number;
 }
 
-const TOUR_SEEN_KEY = "karai_tour_seen";
-
-function hasSeenTour(): boolean {
-  return localStorage.getItem(TOUR_SEEN_KEY) === "true";
-}
-
 export function GuidedTour() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, registrationTutorialPending, consumeRegistrationTutorial } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
@@ -34,7 +30,6 @@ export function GuidedTour() {
 
   const closeTour = useCallback(() => {
     setIsOpen(false);
-    localStorage.setItem(TOUR_SEEN_KEY, "true");
   }, []);
 
   const startTour = useCallback(() => {
@@ -46,10 +41,21 @@ export function GuidedTour() {
   }, [location.pathname, navigate]);
 
   useEffect(() => {
-    if (location.pathname !== "/dashboard" || hasSeenTour()) return;
-    const timer = window.setTimeout(() => setIsOpen(true), 700);
-    return () => window.clearTimeout(timer);
-  }, [location.pathname]);
+    if (!registrationTutorialPending || !user) return;
+    if (location.pathname !== "/dashboard") {
+      navigate("/dashboard");
+      return;
+    }
+    consumeRegistrationTutorial();
+    startTour();
+  }, [
+    consumeRegistrationTutorial,
+    location.pathname,
+    navigate,
+    registrationTutorialPending,
+    startTour,
+    user,
+  ]);
 
   useEffect(() => {
     window.addEventListener("start-karai-tour", startTour);

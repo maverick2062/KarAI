@@ -162,6 +162,54 @@ class TestRowLevelIsolationAcrossEndpoints:
 
 
 class TestTransactionWorkflow:
+    def test_reports_include_manual_transactions_but_exclude_synthetic_feed(self, monkeypatch):
+        from app.routers import reports as reports_router
+
+        headers = _register_and_login("report-sources@example.com")
+        simulated = client.post("/api/v1/transactions/simulate", json={"seed": 42}, headers=headers)
+        assert simulated.status_code == 201
+        assert simulated.json()["tds_events_created"] > 0
+
+        manual = client.post(
+            "/api/v1/transactions/manual",
+            json={
+                "entries": [
+                    {
+                        "transaction_date": "2026-05-10",
+                        "amount": "60000",
+                        "party_name": "Manual Consulting",
+                        "description": "Professional consulting service",
+                        "declared_category": "professional_fees",
+                        "party_pan_provided": True,
+                        "rule_context": {
+                            "payer_is_specified_person": True,
+                            "service_kind": "professional",
+                        },
+                    }
+                ]
+            },
+            headers=headers,
+        )
+        assert manual.status_code == 201
+        assert manual.json()["tds_events_created"] == 1
+
+        captured_reports = []
+        monkeypatch.setattr(
+            reports_router,
+            "generate_excel_report",
+            lambda report_input: captured_reports.append(report_input) or b"test report",
+        )
+        report = client.post(
+            "/api/v1/reports/generate",
+            json={"financial_year": "2026-27", "report_type": "excel"},
+            headers=headers,
+        )
+
+        assert report.status_code == 201
+        assert len(captured_reports) == 1
+        assert len(captured_reports[0].tds_events) == 1
+        assert captured_reports[0].tds_events[0].vendor_name == "Manual Consulting"
+
     def test_delete_complete_reopen_and_restore_transaction(self):
         headers = _register_and_login("workflow@example.com")
         ingested = client.post(
@@ -243,6 +291,81 @@ class TestTransactionWorkflow:
         )
         assert restored.status_code == 200
         assert restored.json()["is_deleted"] is False
+
+    def test_batch_delete_complete_reopen_and_restore_transactions(self):
+        headers = _register_and_login("batch-workflow@example.com")
+        entries = [
+            {
+                "transaction_date": "2026-05-10",
+                "amount": "60000",
+                "party_name": "Batch Consulting 1",
+                "description": "Professional consulting service 1",
+                "declared_category": "professional_fees",
+                "party_pan_provided": True,
+                "rule_context": {
+                    "payer_is_specified_person": True,
+                    "service_kind": "professional",
+                },
+            },
+            {
+                "transaction_date": "2026-05-11",
+                "amount": "70000",
+                "party_name": "Batch Consulting 2",
+                "description": "Professional consulting service 2",
+                "declared_category": "professional_fees",
+                "party_pan_provided": True,
+                "rule_context": {
+                    "payer_is_specified_person": True,
+                    "service_kind": "professional",
+                },
+            },
+        ]
+        ingested = client.post(
+            "/api/v1/transactions/manual",
+            json={"entries": entries},
+            headers=headers,
+        )
+        assert ingested.status_code == 201
+        tx_items = client.get("/api/v1/transactions", headers=headers).json()["items"]
+        ids = [t["id"] for t in tx_items]
+        assert len(ids) == 2
+
+        # Batch complete
+        complete_res = client.post(
+            "/api/v1/transactions/batch-complete",
+            json={"transaction_ids": ids},
+            headers=headers,
+        )
+        assert complete_res.status_code == 200
+        assert len(complete_res.json()) == 2
+
+        # Batch reopen
+        reopen_res = client.post(
+            "/api/v1/transactions/batch-reopen",
+            json={"transaction_ids": ids},
+            headers=headers,
+        )
+        assert reopen_res.status_code == 200
+        assert len(reopen_res.json()) == 2
+
+        # Batch delete
+        delete_res = client.post(
+            "/api/v1/transactions/batch-delete",
+            json={"transaction_ids": ids},
+            headers=headers,
+        )
+        assert delete_res.status_code == 204
+        remaining = client.get("/api/v1/transactions", headers=headers).json()["items"]
+        assert remaining == []
+
+        # Batch restore
+        restore_res = client.post(
+            "/api/v1/transactions/batch-restore",
+            json={"transaction_ids": ids},
+            headers=headers,
+        )
+        assert restore_res.status_code == 200
+        assert len(restore_res.json()) == 2
 
     def test_synthetic_transactions_are_reference_only_and_removable_as_feed(self):
         headers = _register_and_login("synthetic-workflow@example.com")

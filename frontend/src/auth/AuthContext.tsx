@@ -6,8 +6,10 @@ import type { User } from "../api/types";
 interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
+  registrationTutorialPending: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, fullName: string, password: string) => Promise<void>;
+  consumeRegistrationTutorial: () => void;
   logout: () => Promise<void>;
 }
 
@@ -16,6 +18,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [registrationTutorialPending, setRegistrationTutorialPending] = useState(false);
 
   useEffect(() => {
     const token = getToken();
@@ -39,6 +42,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function register(email: string, fullName: string, password: string) {
     await AuthApi.register(email, fullName, password);
     await login(email, password);
+    setRegistrationTutorialPending(true);
+  }
+
+  function consumeRegistrationTutorial() {
+    setRegistrationTutorialPending(false);
   }
 
   async function logout() {
@@ -47,11 +55,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       clearToken();
       setUser(null);
+      setRegistrationTutorialPending(false);
     }
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        registrationTutorialPending,
+        login,
+        register,
+        consumeRegistrationTutorial,
+        logout,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
   );
 }
 

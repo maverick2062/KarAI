@@ -11,6 +11,7 @@ from app.models.user import User
 from app.notifications import send_tds_event_email
 from app.routers.deps import get_current_user
 from app.schemas.transactions import (
+    BatchTransactionRequest,
     IngestionResponse,
     ManualIngestionRequest,
     SimulateFeedRequest,
@@ -330,3 +331,111 @@ def restore_transaction(
     db.commit()
     db.refresh(transaction)
     return transaction
+
+
+@router.post("/batch-delete", status_code=status.HTTP_204_NO_CONTENT)
+def batch_delete_transactions(
+    payload: BatchTransactionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not payload.transaction_ids:
+        return None
+    db.query(Transaction).filter(
+        Transaction.id.in_(payload.transaction_ids),
+        Transaction.user_id == current_user.id,
+        Transaction.source_type.in_(
+            [TransactionSourceType.MANUAL_ENTRY, TransactionSourceType.CSV_UPLOAD]
+        ),
+        Transaction.is_deleted.is_(False),
+    ).update({Transaction.is_deleted: True}, synchronize_session=False)
+    db.commit()
+    return None
+
+
+@router.post("/batch-restore", response_model=list[TransactionOut])
+def batch_restore_transactions(
+    payload: BatchTransactionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not payload.transaction_ids:
+        return []
+    txns = (
+        db.query(Transaction)
+        .filter(
+            Transaction.id.in_(payload.transaction_ids),
+            Transaction.user_id == current_user.id,
+            Transaction.source_type.in_(
+                [TransactionSourceType.MANUAL_ENTRY, TransactionSourceType.CSV_UPLOAD]
+            ),
+        )
+        .all()
+    )
+    for txn in txns:
+        txn.is_deleted = False
+    db.commit()
+    for txn in txns:
+        db.refresh(txn)
+    return txns
+
+
+@router.post("/batch-complete", response_model=list[TransactionOut])
+def batch_complete_transactions(
+    payload: BatchTransactionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not payload.transaction_ids:
+        return []
+    txns = (
+        db.query(Transaction)
+        .options(joinedload(Transaction.tds_event))
+        .filter(
+            Transaction.id.in_(payload.transaction_ids),
+            Transaction.user_id == current_user.id,
+            Transaction.source_type.in_(
+                [TransactionSourceType.MANUAL_ENTRY, TransactionSourceType.CSV_UPLOAD]
+            ),
+            Transaction.is_deleted.is_(False),
+        )
+        .all()
+    )
+    completed_txns = []
+    for txn in txns:
+        if txn.tds_event and txn.tds_event.tds_applicable:
+            txn.is_completed = True
+            completed_txns.append(txn)
+    db.commit()
+    for txn in completed_txns:
+        db.refresh(txn)
+    return completed_txns
+
+
+@router.post("/batch-reopen", response_model=list[TransactionOut])
+def batch_reopen_transactions(
+    payload: BatchTransactionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not payload.transaction_ids:
+        return []
+    txns = (
+        db.query(Transaction)
+        .filter(
+            Transaction.id.in_(payload.transaction_ids),
+            Transaction.user_id == current_user.id,
+            Transaction.source_type.in_(
+                [TransactionSourceType.MANUAL_ENTRY, TransactionSourceType.CSV_UPLOAD]
+            ),
+            Transaction.is_deleted.is_(False),
+        )
+        .all()
+    )
+    for txn in txns:
+        txn.is_completed = False
+    db.commit()
+    for txn in txns:
+        db.refresh(txn)
+    return txns
+

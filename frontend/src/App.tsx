@@ -11,6 +11,7 @@ import { TDSEvents } from "./pages/TDSEvents";
 import { AdvanceTaxPlanner } from "./pages/AdvanceTaxPlanner";
 import { Reports } from "./pages/Reports";
 import { Settings } from "./pages/Settings";
+import { TransactionUndoProvider } from "./components/TransactionUndo";
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -24,72 +25,74 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <AuthProvider>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <AppLayout>
-                <Dashboard />
-              </AppLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/transactions"
-          element={
-            <ProtectedRoute>
-              <AppLayout>
-                <TransactionIngestion />
-              </AppLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/tds-events"
-          element={
-            <ProtectedRoute>
-              <AppLayout>
-                <TDSEvents />
-              </AppLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/advance-tax"
-          element={
-            <ProtectedRoute>
-              <AppLayout>
-                <AdvanceTaxPlanner />
-              </AppLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/reports"
-          element={
-            <ProtectedRoute>
-              <AppLayout>
-                <Reports />
-              </AppLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ProtectedRoute>
-              <AppLayout>
-                <Settings />
-              </AppLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-      <GuidedTour />
+      <TransactionUndoProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <Dashboard />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/transactions"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <TransactionIngestion />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tds-events"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <TDSEvents />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/advance-tax"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <AdvanceTaxPlanner />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <Reports />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <Settings />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+        <GuidedTour />
+      </TransactionUndoProvider>
     </AuthProvider>
   );
 }
