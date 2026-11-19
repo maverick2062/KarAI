@@ -1,15 +1,23 @@
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.advance_tax import TaxRegime
 
 
 class EstimateRequest(BaseModel):
-    financial_year: str
-    total_income_estimate: Decimal
+    financial_year: str = Field(pattern=r"^\d{4}-\d{2}$")
+    total_income_estimate: Decimal = Field(gt=0, allow_inf_nan=False)
     regime: TaxRegime
-    paid_so_far: Decimal = Decimal("0")
+    paid_so_far: Decimal = Field(default=Decimal("0"), ge=0, allow_inf_nan=False)
+
+    @field_validator("financial_year")
+    @classmethod
+    def validate_financial_year(cls, value: str) -> str:
+        start_year, end_year = (int(part) for part in value.split("-"))
+        if start_year < 1 or end_year != (start_year + 1) % 100:
+            raise ValueError("Financial year must span consecutive calendar years.")
+        return value
 
 
 class RegimeComparisonResponse(BaseModel):

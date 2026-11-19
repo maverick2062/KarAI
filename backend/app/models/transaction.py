@@ -2,7 +2,7 @@ import enum
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, JSON, Numeric, String
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, JSON, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -19,6 +19,10 @@ class TransactionSourceType(str, enum.Enum):
 
 class Transaction(Base):
     __tablename__ = "transactions"
+    __table_args__ = (
+        Index("ix_transactions_user_amount", "user_id", "amount"),
+        Index("ix_transactions_user_date_id", "user_id", "transaction_date", "id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -32,6 +36,12 @@ class Transaction(Base):
     description: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     declared_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rule_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    is_completed: Mapped[bool] = mapped_column(
+        "is_completed", Boolean(), nullable=False, default=False, server_default="false"
+    )
+    is_deleted: Mapped[bool] = mapped_column(
+        "is_deleted", Boolean(), nullable=False, default=False, server_default="false"
+    )
 
     financial_year: Mapped[str] = mapped_column(String(7), nullable=False, default=current_financial_year)
 
@@ -40,3 +50,15 @@ class Transaction(Base):
     owner: Mapped["User"] = relationship(back_populates="transactions")
     vendor: Mapped["Vendor | None"] = relationship(back_populates="transactions")
     tds_event: Mapped["TDSEvent | None"] = relationship(back_populates="transaction", uselist=False, cascade="all, delete-orphan")
+
+    @property
+    def tds_applicable(self) -> bool:
+        return bool(self.tds_event and self.tds_event.tds_applicable)
+
+    @property
+    def tds_amount(self) -> Decimal | None:
+        return self.tds_event.tds_amount if self.tds_event else None
+
+    @property
+    def party_name(self) -> str | None:
+        return self.vendor.name if self.vendor else None

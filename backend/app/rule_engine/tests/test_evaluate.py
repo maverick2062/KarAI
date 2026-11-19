@@ -388,6 +388,9 @@ class TestComputeTdsPropertyPurchase:
             ),
         )
         assert result.tds_applicable is False
+        explanation = render_explanation(result, "Buyer")
+        assert "₹40,00,000.00" in explanation
+        assert "₹10,00,000.00 remaining" in explanation
 
     def test_above_per_transaction_threshold_taxes_whole_amount(self):
         result = compute_tds(
@@ -465,6 +468,9 @@ class TestComputeTdsNonResident:
         assert result.decision_status == TDSDecisionStatus.APPLICABLE
         assert result.rate_percent == Decimal("30")
         assert result.tds_amount == Decimal("6000.00")
+        explanation = render_explanation(result, "Winner")
+        assert "PAN was not furnished" in explanation
+        assert "30%" in explanation
 
     def test_unknown_pan_status_preserves_scheduled_rate(self):
         result = compute_tds(

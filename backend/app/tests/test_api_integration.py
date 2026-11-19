@@ -21,13 +21,13 @@ class TestFullUserJourney:
         body = response.json()
         assert body["transactions_created"] > 0
 
-        listing = client.get("/api/v1/tds-events", params={"limit": 500}, headers=headers)
+        listing = client.get("/api/v1/tds-events", params={"limit": 100}, headers=headers)
         assert listing.status_code == 200
-        assert len(listing.json()) == body["tds_events_created"]
+        assert len(listing.json()["items"]) == body["tds_events_created"]
 
-        transactions = client.get("/api/v1/transactions", params={"limit": 500}, headers=headers)
+        transactions = client.get("/api/v1/transactions", params={"limit": 100}, headers=headers)
         assert transactions.status_code == 200
-        assert len(transactions.json()) == body["transactions_created"]
+        assert len(transactions.json()["items"]) == body["transactions_created"]
 
     def test_manual_entry_crossing_threshold_produces_explanation(self):
         headers = _register_and_login("journey-2@example.com")
@@ -134,7 +134,7 @@ class TestRowLevelIsolationAcrossEndpoints:
         client.post("/api/v1/transactions/simulate", json={"seed": 42}, headers=headers_a)
 
         b_transactions = client.get("/api/v1/transactions", headers=headers_b)
-        assert b_transactions.json() == []
+        assert b_transactions.json()["items"] == []
 
     def test_user_cannot_see_another_users_tds_events(self):
         headers_a = _register_and_login("isolation-c@example.com")
@@ -143,7 +143,7 @@ class TestRowLevelIsolationAcrossEndpoints:
         client.post("/api/v1/transactions/simulate", json={"seed": 42}, headers=headers_a)
 
         b_events = client.get("/api/v1/tds-events", headers=headers_b)
-        assert b_events.json() == []
+        assert b_events.json()["items"] == []
 
     def test_user_cannot_download_another_users_report(self):
         headers_a = _register_and_login("isolation-e@example.com")
@@ -159,6 +159,155 @@ class TestRowLevelIsolationAcrossEndpoints:
 
         forbidden = client.get(f"/api/v1/reports/{report_id}/download", headers=headers_b)
         assert forbidden.status_code == 404
+
+
+class TestTransactionWorkflow:
+    def test_delete_complete_reopen_and_restore_transaction(self):
+        headers = _register_and_login("workflow@example.com")
+        ingested = client.post(
+            "/api/v1/transactions/manual",
+            json={
+                "entries": [
+                    {
+                        "transaction_date": "2026-05-10",
+                        "amount": "60000",
+                        "party_name": "Workflow Consulting",
+                        "description": "Professional consulting service",
+                        "declared_category": "professional_fees",
+                        "party_pan_provided": True,
+                        "rule_context": {
+                            "payer_is_specified_person": True,
+                            "service_kind": "professional",
+                        },
+                    }
+                ]
+            },
+            headers=headers,
+        )
+        assert ingested.status_code == 201
+        transaction_id = client.get("/api/v1/transactions", headers=headers).json()["items"][0]["id"]
+
+        unpaid_events = client.get(
+            "/api/v1/tds-events",
+            params={"transaction_completed": False, "limit": 100},
+            headers=headers,
+        ).json()
+        assert unpaid_events["flagged_count"] == 1
+        assert unpaid_events["total_tds_due"] != "0"
+        assert unpaid_events["upcoming_deadlines"]
+        assert unpaid_events["items"][0]["transaction_date"] == "2026-05-10"
+
+        completed = client.patch(
+            f"/api/v1/transactions/{transaction_id}/complete",
+            headers=headers,
+        )
+        assert completed.status_code == 200
+        assert completed.json()["is_completed"] is True
+        paid_events = client.get(
+            "/api/v1/tds-events",
+            params={"transaction_completed": True, "limit": 100},
+            headers=headers,
+        ).json()
+        assert paid_events["flagged_count"] == 1
+        assert paid_events["total_tds_due"] == "0"
+        assert paid_events["upcoming_deadlines"] == []
+        assert client.get(
+            "/api/v1/transactions",
+            params={"include_completed": False},
+            headers=headers,
+        ).json()["total"] == 0
+
+        reopened = client.patch(
+            f"/api/v1/transactions/{transaction_id}/reopen",
+            headers=headers,
+        )
+        assert reopened.status_code == 200
+        assert reopened.json()["is_completed"] is False
+
+        deleted = client.delete(
+            f"/api/v1/transactions/{transaction_id}",
+            headers=headers,
+        )
+        assert deleted.status_code == 204
+        assert all(
+            transaction["id"] != transaction_id
+            for transaction in client.get("/api/v1/transactions", headers=headers).json()["items"]
+        )
+        deleted_events = client.get("/api/v1/tds-events", headers=headers)
+        assert deleted_events.json()["total"] == 0
+        assert deleted_events.json()["flagged_count"] == 0
+
+        restored = client.patch(
+            f"/api/v1/transactions/{transaction_id}/restore",
+            headers=headers,
+        )
+        assert restored.status_code == 200
+        assert restored.json()["is_deleted"] is False
+
+    def test_synthetic_transactions_are_reference_only_and_removable_as_feed(self):
+        headers = _register_and_login("synthetic-workflow@example.com")
+        simulated = client.post("/api/v1/transactions/simulate", json={"seed": 42}, headers=headers)
+        assert simulated.status_code == 201
+        transaction_id = client.get("/api/v1/transactions", headers=headers).json()["items"][0]["id"]
+        recent_transactions = client.get(
+            "/api/v1/transactions",
+            params={"recent_only": True},
+            headers=headers,
+        )
+        assert recent_transactions.json()["total"] == 0
+
+        forbidden = client.patch(
+            f"/api/v1/transactions/{transaction_id}/complete",
+            headers=headers,
+        )
+        assert forbidden.status_code == 404
+
+        removed = client.delete("/api/v1/transactions/synthetic-feed", headers=headers)
+        assert removed.status_code == 200
+        assert removed.json()["transactions_removed"] == simulated.json()["transactions_created"]
+        assert client.get("/api/v1/transactions", headers=headers).json()["total"] == 0
+
+    def test_transaction_search_matches_indexed_description_and_exact_amount(self):
+        headers = _register_and_login("transaction-search@example.com")
+        client.post(
+            "/api/v1/transactions/manual",
+            json={
+                "entries": [
+                    {
+                        "transaction_date": "2026-05-10",
+                        "amount": "45250.00",
+                        "party_name": "Northstar Design",
+                        "description": "Annual design consulting retainer",
+                    }
+                ]
+            },
+            headers=headers,
+        )
+
+        by_description = client.get(
+            "/api/v1/transactions",
+            params={"search": "design consulting", "recent_only": True},
+            headers=headers,
+        )
+        assert by_description.status_code == 200
+        assert by_description.json()["total"] == 1
+
+        by_amount = client.get(
+            "/api/v1/transactions",
+            params={"search": "45,250.00", "recent_only": True},
+            headers=headers,
+        )
+        assert by_amount.status_code == 200
+        assert by_amount.json()["total"] == 1
+
+        event_search = client.get(
+            "/api/v1/tds-events",
+            params={"search": "design consulting"},
+            headers=headers,
+        )
+        assert event_search.status_code == 200
+        assert event_search.json()["total"] == 1
+        assert event_search.json()["items"][0]["transaction_date"] == "2026-05-10"
 
 
 class TestAccountDeletion:

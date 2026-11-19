@@ -17,6 +17,11 @@ export interface TokenResponse {
 export interface TDSEventSummary {
   id: string;
   transaction_id: string;
+  transaction_date: string | null;
+  transaction_amount: string | null;
+  transaction_description: string | null;
+  transaction_party_name: string | null;
+  transaction_is_completed: boolean;
   category: string;
   decision_status: "applicable" | "not_applicable" | "needs_review";
   review_reason: string | null;
@@ -44,6 +49,25 @@ export interface TransactionOut {
   declared_category: string | null;
   financial_year: string;
   created_at: string;
+  is_completed: boolean;
+  is_deleted: boolean;
+  party_name: string | null;
+  tds_applicable: boolean;
+  tds_amount: string | null;
+}
+
+export interface PageResponse<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface TDSEventPage extends PageResponse<TDSEventSummary> {
+  flagged_count: number;
+  needs_review_count: number;
+  total_tds_due: string;
+  upcoming_deadlines: string[];
 }
 
 export interface IngestionResponse {

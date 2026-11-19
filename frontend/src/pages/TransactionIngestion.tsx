@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { TransactionsApi } from "../api/endpoints";
-import type { IngestionResponse } from "../api/types";
+import type { IngestionResponse, TransactionOut } from "../api/types";
 import { ApiError } from "../api/client";
 import { DisclaimerBanner } from "../components/DisclaimerBanner";
+import { formatCurrency } from "../utils/financialYear";
 
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return typeof err.detail === "string" ? err.detail : "Request failed.";
   return "Something went wrong. Please try again.";
+}
+
+function formatTransactionAmount(amount: string): string {
+  const numericAmount = Number(amount);
+  return formatCurrency(Number.isFinite(numericAmount) ? numericAmount : 0);
 }
 
 export function TransactionIngestion() {
@@ -15,7 +21,19 @@ export function TransactionIngestion() {
   const [isBusy, setIsBusy] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [notificationKey, setNotificationKey] = useState(0);
+  const [stagedFile, setStagedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [transactions, setTransactions] = useState<TransactionOut[]>([]);
+  const [transactionsTotal, setTransactionsTotal] = useState(0);
+  const [transactionsSearchInput, setTransactionsSearchInput] = useState("");
+  const [transactionsSearch, setTransactionsSearch] = useState("");
+  const [transactionsOffset, setTransactionsOffset] = useState(0);
+  const [undoAction, setUndoAction] = useState<{ transactionId: string; action: "delete" | "complete"; expiresAt: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
+  const resultHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const [manualEntry, setManualEntry] = useState({
     transaction_date: new Date().toISOString().slice(0, 10),
@@ -45,9 +63,196 @@ export function TransactionIngestion() {
 
   useEffect(() => {
     if (!notification) return;
-    const timeout = window.setTimeout(() => setNotification(null), 7000);
+    const timeout = window.setTimeout(() => setNotification(null), 10000);
     return () => window.clearTimeout(timeout);
-  }, [notification]);
+  }, [notification, notificationKey]);
+
+  useEffect(() => {
+    if (!result) return;
+    resultHeadingRef.current?.focus({ preventScroll: true });
+    resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [result]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setTransactionsSearch(transactionsSearchInput.trim());
+      setTransactionsOffset(0);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [transactionsSearchInput]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    TransactionsApi.list({
+      recentOnly: true,
+      search: transactionsSearch || undefined,
+      limit: 10,
+      offset: transactionsOffset,
+      signal: controller.signal,
+    })
+      .then((response) => {
+        setTransactions(response.items);
+        setTransactionsTotal(response.total);
+      })
+      .catch((err: unknown) => {
+        if (!(err instanceof DOMException && err.name === "AbortError")) setError(errorMessage(err));
+      });
+    return () => controller.abort();
+  }, [result, transactionsOffset, transactionsSearch]);
+
+  useEffect(() => {
+    if (!undoAction) return;
+    const remaining = undoAction.expiresAt - Date.now();
+    if (remaining <= 0) {
+      setUndoAction(null);
+      return;
+    }
+    const timeout = window.setTimeout(() => setUndoAction(null), remaining);
+    return () => window.clearTimeout(timeout);
+  }, [undoAction]);
+
+  function prepareNotificationSound() {
+    if (!window.AudioContext || audioContextRef.current) return;
+
+    let context: AudioContext;
+    try {
+      context = new window.AudioContext();
+    } catch (error) {
+      console.warn("Could not initialize the transaction notification sound.", error);
+      return;
+    }
+
+    audioContextRef.current = context;
+    void context.resume().catch((error: unknown) => {
+      if (audioContextRef.current === context) {
+        console.warn("The browser blocked the transaction notification sound.", error);
+        audioContextRef.current = null;
+        void context.close();
+      }
+    });
+  }
+
+  function playNotificationSound() {
+    const context = audioContextRef.current;
+    if (!context) return;
+    if (context.state !== "running") {
+      console.warn("The transaction notification sound was unavailable; the visual notification is still shown.");
+      stopNotificationSound();
+      return;
+    }
+
+    const now = context.currentTime;
+    for (const [frequency, startAt] of [[587.33, 0], [880, 0.09]] as const) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, now + startAt);
+      gain.gain.setValueAtTime(0.14, now + startAt);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + startAt + 0.35);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(now + startAt);
+      oscillator.stop(now + startAt + 0.35);
+    }
+    audioContextRef.current = null;
+    window.setTimeout(() => {
+      void context.close();
+    }, 500);
+  }
+
+  function stopNotificationSound() {
+    const context = audioContextRef.current;
+    audioContextRef.current = null;
+    if (context && context.state !== "closed") void context.close();
+  }
+
+  function resetManualEntry() {
+    setManualEntry({
+      transaction_date: new Date().toISOString().slice(0, 10),
+      amount: "",
+      party_name: "",
+      description: "",
+      declared_category: "",
+      party_pan: "",
+      party_pan_provided: "unknown",
+      party_is_non_resident: "",
+      payer_is_specified_person: "",
+      payer_is_designated_person: "",
+      payee_is_individual_or_huf: "",
+      service_kind: "",
+      property_stamp_duty_value: "",
+      property_consideration_total: "",
+      property_payment_is_full_consideration: false,
+      payee_is_individual_shareholder: "",
+      dividend_payment_is_non_cash: "",
+      lottery_winnings_kind: "",
+      lottery_winnings_are_cash: "",
+      vda_payer_is_individual_or_huf: "",
+      vda_payer_turnover_within_limit: "",
+      vda_payer_has_business_income: "",
+      vda_consideration_is_cash: "",
+    });
+  }
+
+  async function undoLastAction() {
+    if (!undoAction) return;
+    if (Date.now() > undoAction.expiresAt) {
+      setUndoAction(null);
+      return;
+    }
+    try {
+      if (undoAction.action === "delete") {
+        await TransactionsApi.restore(undoAction.transactionId);
+      } else {
+        await TransactionsApi.reopen(undoAction.transactionId);
+      }
+      setUndoAction(null);
+      const response = await TransactionsApi.list({
+        recentOnly: true,
+        search: transactionsSearch || undefined,
+        limit: 10,
+        offset: transactionsOffset,
+      });
+      setTransactions(response.items);
+      setTransactionsTotal(response.total);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function completeTransaction(transactionId: string) {
+    try {
+      await TransactionsApi.complete(transactionId);
+      setUndoAction({ transactionId, action: "complete", expiresAt: Date.now() + 60000 });
+      const response = await TransactionsApi.list({
+        recentOnly: true,
+        search: transactionsSearch || undefined,
+        limit: 10,
+        offset: transactionsOffset,
+      });
+      setTransactions(response.items);
+      setTransactionsTotal(response.total);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function deleteTransaction(transactionId: string) {
+    try {
+      await TransactionsApi.delete(transactionId);
+      setUndoAction({ transactionId, action: "delete", expiresAt: Date.now() + 60000 });
+      const response = await TransactionsApi.list({
+        recentOnly: true,
+        search: transactionsSearch || undefined,
+        limit: 10,
+        offset: transactionsOffset,
+      });
+      setTransactions(response.items);
+      setTransactionsTotal(response.total);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
 
   function showIngestionNotification(response: IngestionResponse) {
     setResult(response);
@@ -56,19 +261,40 @@ export function TransactionIngestion() {
     setNotification(
       `${flagged.length} payment(s) flagged for TDS; ${reviews.length} need manual review.`,
     );
+    setNotificationKey((key) => key + 1);
+    playNotificationSound();
   }
 
   function optionalBoolean(value: string): boolean | null {
     return value === "" ? null : value === "yes";
   }
 
-  async function handleFile(file: File) {
+  function handleFile(file: File) {
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setError("Please select a CSV file.");
+      return;
+    }
+    setError(null);
+    setStagedFile(file);
+    setUploadProgress(null);
+  }
+
+  async function handleCsvUpload() {
+    if (!stagedFile) return;
+    prepareNotificationSound();
     setError(null);
     setIsBusy(true);
+    setUploadProgress(0);
     try {
-      const response = await TransactionsApi.uploadCsv(file);
+      const response = await TransactionsApi.uploadCsvWithProgress(stagedFile, (percent) => {
+        setUploadProgress(percent);
+      });
+      setUploadProgress(100);
       showIngestionNotification(response);
+      setStagedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err) {
+      stopNotificationSound();
       setError(errorMessage(err));
     } finally {
       setIsBusy(false);
@@ -83,12 +309,14 @@ export function TransactionIngestion() {
   }
 
   async function handleSimulate() {
+    prepareNotificationSound();
     setError(null);
     setIsBusy(true);
     try {
       const response = await TransactionsApi.simulate(42);
       showIngestionNotification(response);
     } catch (err) {
+      stopNotificationSound();
       setError(errorMessage(err));
     } finally {
       setIsBusy(false);
@@ -97,6 +325,7 @@ export function TransactionIngestion() {
 
   async function handleManualSubmit(event: FormEvent) {
     event.preventDefault();
+    prepareNotificationSound();
     setError(null);
     setIsBusy(true);
     try {
@@ -156,6 +385,7 @@ export function TransactionIngestion() {
         vda_consideration_is_cash: "",
       });
     } catch (err) {
+      stopNotificationSound();
       setError(errorMessage(err));
     } finally {
       setIsBusy(false);
@@ -167,11 +397,14 @@ export function TransactionIngestion() {
       <DisclaimerBanner />
       <h1>Ingest transactions</h1>
       {notification && (
-        <div className="toast" role="status" aria-live="polite">
-          <span>{notification}</span>
-          <button className="toast__close" onClick={() => setNotification(null)} aria-label="Dismiss notification">
-            ×
-          </button>
+        <div key={notificationKey} className="toast" role="status" aria-live="polite">
+          <div className="toast__body">
+            <span>{notification}</span>
+            <button type="button" className="toast__close" onClick={() => setNotification(null)} aria-label="Dismiss notification">
+              ×
+            </button>
+          </div>
+          <div className="toast__progress" aria-hidden="true" />
         </div>
       )}
       <p className="page__subtitle">
@@ -181,7 +414,7 @@ export function TransactionIngestion() {
 
       {error && <div className="alert alert--error">{error}</div>}
 
-      <div className="card">
+      <div className="card" data-tour="ingest-demo">
         <h2>Try a demo bank feed</h2>
         <p>Generates a year of realistic recurring payments so you can see TDS detection immediately.</p>
         <button className="button button--primary" onClick={handleSimulate} disabled={isBusy}>
@@ -189,7 +422,7 @@ export function TransactionIngestion() {
         </button>
       </div>
 
-      <div className="card">
+      <div className="card" data-tour="ingest-csv">
         <h2>Upload CSV</h2>
         <div
           className={"drop-zone" + (isDragActive ? " drop-zone--active" : "")}
@@ -201,7 +434,13 @@ export function TransactionIngestion() {
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
         >
-          <p>Drag & drop a CSV here, or click to browse</p>
+          <button type="button" className="upload-plus" aria-label="Choose a CSV file" onClick={(event) => {
+            event.stopPropagation();
+            fileInputRef.current?.click();
+          }}>
+            +
+          </button>
+          <p>{stagedFile ? stagedFile.name : "Drag & drop a CSV here, or click to browse"}</p>
           <p className="field-hint">Required columns: transaction_date, amount, party_name (up to 50 MB)</p>
         </div>
         <input
@@ -214,9 +453,34 @@ export function TransactionIngestion() {
             if (file) handleFile(file);
           }}
         />
+        {stagedFile && (
+          <div className="upload-progress">
+            <div className="upload-progress__meta">
+              <span>{stagedFile.name}</span>
+              {uploadProgress !== null && <strong>{uploadProgress}%</strong>}
+            </div>
+            {uploadProgress !== null && (
+              <div className="upload-progress__track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadProgress}>
+                <div className="upload-progress__bar" style={{ width: `${uploadProgress}%` }} />
+              </div>
+            )}
+            <div className="button-row">
+              <button className="button button--primary" type="button" onClick={handleCsvUpload} disabled={isBusy}>
+                {isBusy ? "Uploading…" : "Upload & simulate document"}
+              </button>
+              <button className="button button--ghost" type="button" onClick={() => {
+                setStagedFile(null);
+                setUploadProgress(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }} disabled={isBusy}>
+                Remove file
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="card">
+      <div className="card" data-tour="ingest-manual">
         <h2>Manual entry</h2>
         <form className="manual-entry-form" onSubmit={handleManualSubmit}>
           <label>
@@ -435,7 +699,7 @@ export function TransactionIngestion() {
                 setManualEntry({
                   ...manualEntry,
                   party_pan: e.target.value.toUpperCase(),
-                  party_pan_provided: e.target.value ? "yes" : manualEntry.party_pan_provided,
+                  party_pan_provided: e.target.value.trim() ? "yes" : "no",
                 })
               }
             />
@@ -469,15 +733,20 @@ export function TransactionIngestion() {
               <option value="no">No — apply higher rate</option>
             </select>
           </label>
-          <button className="button button--primary" type="submit" disabled={isBusy}>
-            Add transaction
-          </button>
+          <div className="manual-entry-actions button-row">
+            <button className="button button--primary" type="submit" disabled={isBusy}>
+              Add transaction
+            </button>
+            <button className="button button--ghost" type="button" onClick={resetManualEntry} disabled={isBusy}>
+              Clear / Reset
+            </button>
+          </div>
         </form>
       </div>
 
       {result && (
-        <div className="card">
-          <h2>Ingestion result</h2>
+        <div ref={resultRef} className="card ingestion-result">
+          <h2 ref={resultHeadingRef} tabIndex={-1}>Ingestion result</h2>
           <p>
             {result.transactions_created} transaction(s) processed, {result.tds_events_created} evaluated for TDS.
           </p>
@@ -492,6 +761,87 @@ export function TransactionIngestion() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {undoAction && (
+        <div className="toast toast--undo" role="status" aria-live="polite">
+          <div className="toast__body">
+            <span>{undoAction.action === "delete" ? "Transaction removed." : "Transaction marked as completed."}</span>
+            <button type="button" className="button button--secondary" onClick={undoLastAction}>
+              Undo
+            </button>
+          </div>
+          <div className="toast__progress toast__progress--undo" aria-hidden="true" />
+        </div>
+      )}
+
+      {transactionsTotal > 0 && (
+        <div className="card">
+          <div className="section-heading">
+            <div>
+              <h2>Recent transactions</h2>
+              <p className="field-hint">Only uploaded and manually entered transactions appear here. Simulated bank feeds are reference data.</p>
+            </div>
+            <label>
+              Find a transaction
+              <input
+                type="search"
+                value={transactionsSearchInput}
+                onChange={(event) => setTransactionsSearchInput(event.target.value)}
+                placeholder="Description, payee, or exact amount"
+              />
+            </label>
+          </div>
+          <div className="transaction-actions-list">
+            {transactions.map((transaction) => (
+              <div className={"transaction-action-row" + (transaction.is_completed ? " transaction-action-row--completed" : "")} key={transaction.id}>
+                <div>
+                  <strong>{formatTransactionAmount(transaction.amount)}</strong>
+                  <span>{transaction.description || transaction.party_name || "Transaction"} · {transaction.transaction_date}</span>
+                </div>
+                <div className="transaction-action-row__buttons">
+                  {transaction.tds_applicable && (
+                    <button
+                      type="button"
+                      className="button button--secondary"
+                      onClick={() => completeTransaction(transaction.id)}
+                      disabled={transaction.is_completed || Boolean(undoAction)}
+                    >
+                      {transaction.is_completed ? "TDS paid" : "Mark TDS paid"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="button button--danger"
+                    onClick={() => deleteTransaction(transaction.id)}
+                    disabled={Boolean(undoAction)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="button-row pagination-controls">
+            <button
+              className="button button--secondary"
+              onClick={() => setTransactionsOffset(Math.max(0, transactionsOffset - 10))}
+              disabled={transactionsOffset === 0}
+            >
+              Previous
+            </button>
+            <span className="field-hint">
+              Showing {transactionsTotal ? transactionsOffset + 1 : 0}–{Math.min(transactionsOffset + transactions.length, transactionsTotal)} of {transactionsTotal}
+            </span>
+            <button
+              className="button button--secondary"
+              onClick={() => setTransactionsOffset(transactionsOffset + 10)}
+              disabled={transactionsOffset + 10 >= transactionsTotal}
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
     </div>

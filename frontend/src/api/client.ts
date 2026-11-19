@@ -30,6 +30,7 @@ type RequestOptions = {
   body?: unknown;
   isFormData?: boolean;
   query?: Record<string, string | number | boolean | undefined>;
+  signal?: AbortSignal;
 };
 
 function buildQueryString(query?: RequestOptions["query"]): string {
@@ -59,6 +60,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       : options.body !== undefined
         ? JSON.stringify(options.body)
         : undefined,
+    signal: options.signal,
   });
 
   if (response.status === 401) {
@@ -81,9 +83,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export const api = {
-  get: <T>(path: string, query?: RequestOptions["query"]) => request<T>(path, { query }),
+  get: <T>(path: string, query?: RequestOptions["query"], signal?: AbortSignal) =>
+    request<T>(path, { query, signal }),
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body }),
+  delete: <T>(path: string, query?: RequestOptions["query"]) => request<T>(path, { method: "DELETE", query }),
   postForm: <T>(path: string, formData: FormData) =>
     request<T>(path, { method: "POST", body: formData, isFormData: true }),
   downloadBlob: async (path: string): Promise<Blob> => {

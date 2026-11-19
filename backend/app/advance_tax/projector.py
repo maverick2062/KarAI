@@ -5,6 +5,7 @@ the quarterly installment schedule with Section 234B/234C interest estimates.
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+import re
 
 from app.advance_tax.slabs import (
     CESS_RATE,
@@ -116,7 +117,14 @@ class AdvanceTaxProjection:
 
 
 def _fy_start_year(financial_year: str) -> int:
-    return int(financial_year.split("-")[0])
+    match = re.fullmatch(r"(\d{4})-(\d{2})", financial_year)
+    if match is None:
+        raise ValueError("Financial year must use the YYYY-YY format.")
+
+    start_year, end_year = (int(part) for part in match.groups())
+    if start_year < 1 or end_year != (start_year + 1) % 100:
+        raise ValueError("Financial year must span consecutive calendar years.")
+    return start_year
 
 
 def project_advance_tax(
@@ -130,6 +138,7 @@ def project_advance_tax(
     Section 234B/234C interest for underpayment, given a running total of
     what the user reports having already paid this FY.
     """
+    fy_start_year = _fy_start_year(financial_year)
     tax_liability = compute_tax_liability(total_income_estimate, regime)
 
     if tax_liability < ADVANCE_TAX_LIABILITY_THRESHOLD:
@@ -141,7 +150,6 @@ def project_advance_tax(
             advance_tax_required=False,
         )
 
-    fy_start_year = _fy_start_year(financial_year)
     as_of = as_of or date.today()
 
     installments: list[QuarterlyInstallment] = []

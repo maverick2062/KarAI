@@ -52,6 +52,11 @@ class SimulateFeedRequest(BaseModel):
 class TDSEventSummary(BaseModel):
     id: str
     transaction_id: str
+    transaction_date: date | None = None
+    transaction_amount: Decimal | None = None
+    transaction_description: str | None = None
+    transaction_party_name: str | None = None
+    transaction_is_completed: bool = False
     category: str
     decision_status: TDSDecisionStatus
     review_reason: str | None
@@ -87,5 +92,28 @@ class TransactionOut(BaseModel):
     declared_category: str | None
     financial_year: str
     created_at: datetime
+    is_completed: bool = False
+    is_deleted: bool = False
+    party_name: str | None = None
+    tds_applicable: bool = False
+    tds_amount: Decimal | None = None
 
     model_config = {"from_attributes": True}
+
+
+class TransactionPage(BaseModel):
+    items: list[TransactionOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class TDSEventPage(BaseModel):
+    items: list[TDSEventSummary]
+    total: int
+    limit: int
+    offset: int
+    flagged_count: int = 0
+    needs_review_count: int = 0
+    total_tds_due: Decimal = Decimal("0")
+    upcoming_deadlines: list[str] = Field(default_factory=list)
