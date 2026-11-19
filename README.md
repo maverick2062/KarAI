@@ -72,7 +72,7 @@ Prerequisites:
 Open PowerShell in the repository root:
 
 ```powershell
-Set-Location "D:\Nikhil\Nikhil\karai\karai"
+Set-Location "C:\your_directory\karai\karai"
 Copy-Item .env.example .env
 notepad .env
 ```
@@ -129,7 +129,7 @@ This option requires PostgreSQL 16 running locally, with a database and user mat
 
 Backend:
 ```powershell
-Set-Location "D:\Nikhil\Nikhil\karai\karai\backend"
+Set-Location "C:\your_directory\karai\karai\backend"
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
@@ -143,7 +143,7 @@ uvicorn app.main:app --reload
 
 Frontend:
 ```powershell
-Set-Location "D:\Nikhil\Nikhil\karai\karai\frontend"
+Set-Location "C:\your_directory\karai\karai\frontend"
 npm install
 npm run dev
 ```
@@ -151,7 +151,7 @@ npm run dev
 ### Tests
 
 ```powershell
-Set-Location "D:\Nikhil\Nikhil\karai\karai\backend"
+Set-Location "C:\your_directory\karai\karai\backend"
 .\.venv\Scripts\Activate.ps1
 pytest --cov=app --cov-report=term-missing
 ```
