@@ -93,7 +93,7 @@ export function AdvanceTaxPlanner() {
           ) : (
             <>
               <p>Estimated total tax liability: {formatCurrency(projection.tax_liability)}</p>
-              <table className="data-table">
+              <table className="data-table data-table--responsive">
                 <thead>
                   <tr>
                     <th>Installment</th>
@@ -105,16 +105,16 @@ export function AdvanceTaxPlanner() {
                 </thead>
                 <tbody>
                   {projection.installments.map((installment) => (
-                    <tr key={installment.label}>
-                      <td>{installment.label}</td>
-                      <td>{installment.due_date}</td>
-                      <td>{formatCurrency(installment.cumulative_amount_required)}</td>
-                      <td>
+                    <tr key={installment.label} className="data-table__mobile-card">
+                      <td data-label="Installment">{installment.label}</td>
+                      <td data-label="Due date">{installment.due_date}</td>
+                      <td data-label="Cumulative required">{formatCurrency(installment.cumulative_amount_required)}</td>
+                      <td data-label="Status">
                         <span className={"badge " + (installment.is_short ? "badge--danger" : "badge--success")}>
                           {installment.is_short ? "Shortfall" : "On track"}
                         </span>
                       </td>
-                      <td>{installment.is_short ? formatCurrency(installment.interest_234c) : "—"}</td>
+                      <td data-label="Est. 234C interest">{installment.is_short ? formatCurrency(installment.interest_234c) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -98,6 +98,14 @@ export const TransactionsApi = {
     api.delete<void>(`/api/v1/transactions/${transactionId}`),
   restore: (transactionId: string) =>
     api.patch<TransactionOut>(`/api/v1/transactions/${transactionId}/restore`),
+  batchDelete: (transactionIds: string[]) =>
+    api.post<void>("/api/v1/transactions/batch-delete", { transaction_ids: transactionIds }),
+  batchComplete: (transactionIds: string[]) =>
+    api.post<TransactionOut[]>("/api/v1/transactions/batch-complete", { transaction_ids: transactionIds }),
+  batchRestore: (transactionIds: string[]) =>
+    api.post<TransactionOut[]>("/api/v1/transactions/batch-restore", { transaction_ids: transactionIds }),
+  batchReopen: (transactionIds: string[]) =>
+    api.post<TransactionOut[]>("/api/v1/transactions/batch-reopen", { transaction_ids: transactionIds }),
   removeSyntheticFeed: (financialYear?: string) =>
     api.delete<{ transactions_removed: number }>("/api/v1/transactions/synthetic-feed", {
       financial_year: financialYear,

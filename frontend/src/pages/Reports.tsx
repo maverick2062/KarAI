@@ -73,7 +73,7 @@ export function Reports() {
         {isLoading && <p>Loading…</p>}
         {!isLoading && reports.length === 0 && <p className="empty-state">No reports generated yet.</p>}
         {!isLoading && reports.length > 0 && (
-          <table className="data-table">
+          <table className="data-table data-table--responsive">
             <thead>
               <tr>
                 <th>Type</th>
@@ -84,11 +84,11 @@ export function Reports() {
             </thead>
             <tbody>
               {reports.map((report) => (
-                <tr key={report.id}>
-                  <td>{report.report_type.toUpperCase()}</td>
-                  <td>{report.financial_year}</td>
-                  <td>{new Date(report.generated_at).toLocaleString()}</td>
-                  <td>
+                <tr key={report.id} className="data-table__mobile-card">
+                  <td data-label="Type">{report.report_type.toUpperCase()}</td>
+                  <td data-label="Financial year">{report.financial_year}</td>
+                  <td data-label="Generated">{new Date(report.generated_at).toLocaleString()}</td>
+                  <td data-label="Actions">
                     <button className="button button--ghost" onClick={() => handleDownload(report)}>
                       Download
                     </button>

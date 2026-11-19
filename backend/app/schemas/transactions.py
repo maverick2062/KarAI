@@ -49,6 +49,10 @@ class SimulateFeedRequest(BaseModel):
     seed: int = 42
 
 
+class BatchTransactionRequest(BaseModel):
+    transaction_ids: list[str] = Field(default_factory=list)
+
+
 class TDSEventSummary(BaseModel):
     id: str
     transaction_id: str
